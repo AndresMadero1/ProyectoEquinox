@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,8 +29,23 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.VideogameAsset
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.AssistChip
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -247,7 +263,7 @@ private fun GamerRoomsApp() {
                 }
                 MainSection.Profile -> {
                     item {
-                        ProfileSection(profile = myProfile)
+                        ProfileSection(profile = myProfile, onLogout = { isLoggedIn = false })
                     }
                 }
             }
@@ -380,10 +396,24 @@ private fun LoginForm(onLogin: () -> Unit, onCreateAccount: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () -> Unit) {
-    val gameOptions = listOf("Valorant", "League of Legends", "Fortnite", "Destiny 2", "Minecraft", "Call of Duty")
     val platformOptions = listOf("PC", "PlayStation", "Xbox", "Nintendo", "Mobile")
+
+    // Juegos predefinidos con iconos por defecto de Android/Launcher ya que no hay recursos de imágenes reales en el proyecto.
+    // Usaremos el ic_launcher_background / ic_launcher_foreground incorporados.
+    val gameOptions = listOf(
+        Pair("Valorant", R.drawable.valo),
+        Pair("League of Legends", android.R.drawable.ic_menu_slideshow),
+        Pair("Fortnite", android.R.drawable.ic_menu_compass),
+        Pair("Destiny 2", android.R.drawable.ic_menu_agenda),
+        Pair("Minecraft", android.R.drawable.ic_menu_mapmode),
+        Pair("Call of Duty", android.R.drawable.ic_menu_myplaces)
+    )
+
+    // Control de paso (paso 1: Datos, paso 2: Plataforma, paso 3: Juegos)
+    var currentStep by remember { mutableStateOf(1) }
 
     var fullName by remember { mutableStateOf("") }
     var gamerTag by remember { mutableStateOf("") }
@@ -391,15 +421,23 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
     var password by remember { mutableStateOf("") }
     var region by remember { mutableStateOf("") }
     var selectedPlatform by remember { mutableStateOf(platformOptions.first()) }
+    
     var selectedGames by remember { mutableStateOf(setOf<String>()) }
+    var customGameInput by remember { mutableStateOf("") }
+    var isDialogOpen by remember { mutableStateOf(false) }
     var showError by remember { mutableStateOf(false) }
 
-    val canSubmit = fullName.isNotBlank() &&
-        gamerTag.isNotBlank() &&
-        email.isNotBlank() &&
-        password.isNotBlank() &&
-        region.isNotBlank() &&
-        selectedGames.isNotEmpty()
+    val totalSelectedGames = remember(selectedGames, customGameInput) {
+        val list = selectedGames.toMutableList()
+        if (customGameInput.isNotBlank()) {
+            list.add(customGameInput.trim())
+        }
+        list
+    }
+
+    val step1Valid = fullName.isNotBlank() && gamerTag.isNotBlank() && email.isNotBlank() && password.isNotBlank() && region.isNotBlank()
+    val step2Valid = selectedPlatform.isNotBlank()
+    val canSubmit = step1Valid && step2Valid && totalSelectedGames.isNotEmpty()
 
     LazyColumn(
         modifier = Modifier
@@ -412,16 +450,40 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Crea tu perfil gamer",
+                    text = when(currentStep) {
+                        1 -> "Paso 1: Tus Datos"
+                        2 -> "Paso 2: Elige tu plataforma"
+                        else -> "Paso 3: Juegos favoritos"
+                    },
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Black,
                     color = Color(0xFF7CFFB2)
                 )
                 Text(
-                    text = "Tus datos e intereses ayudaran a recomendar grupos y salas.",
+                    text = when(currentStep) {
+                        1 -> "Ingresa tu información personal básica para identificarte."
+                        2 -> "Selecciona la consola o sistema principal donde juegas."
+                        else -> "Elige los títulos que más te apasionan."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFD6E2DA)
                 )
+                
+                // Indicador de Progreso Visual Simple
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    repeat(3) { index ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(if (index + 1 <= currentStep) Color(0xFF7CFFB2) else Color(0xFF242933))
+                        )
+                    }
+                }
             }
         }
 
@@ -435,131 +497,233 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
                     modifier = Modifier.padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    OutlinedTextField(
-                        value = fullName,
-                        onValueChange = {
-                            fullName = it
-                            showError = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                        label = { Text("Nombre") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = gamerTag,
-                        onValueChange = {
-                            gamerTag = it
-                            showError = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Gamertag") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = {
-                            email = it
-                            showError = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Correo") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-                    )
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = {
-                            password = it
-                            showError = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                        label = { Text("Contrasena") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-                    )
-                    OutlinedTextField(
-                        value = region,
-                        onValueChange = {
-                            region = it
-                            showError = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Region") },
-                        singleLine = true
-                    )
-
-                    Text("Plataforma principal", fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        platformOptions.take(3).forEach { platform ->
-                            FilterChip(
-                                selected = selectedPlatform == platform,
-                                onClick = { selectedPlatform = platform },
-                                label = { Text(platform) }
-                            )
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        platformOptions.drop(3).forEach { platform ->
-                            FilterChip(
-                                selected = selectedPlatform == platform,
-                                onClick = { selectedPlatform = platform },
-                                label = { Text(platform) }
-                            )
-                        }
-                    }
-
-                    Text("Juegos de interes", fontWeight = FontWeight.SemiBold)
-                    gameOptions.chunked(2).forEach { rowGames ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            rowGames.forEach { game ->
-                                FilterChip(
-                                    selected = game in selectedGames,
-                                    onClick = {
-                                        selectedGames = if (game in selectedGames) {
-                                            selectedGames - game
-                                        } else {
-                                            selectedGames + game
-                                        }
-                                        showError = false
-                                    },
-                                    label = { Text(game) }
-                                )
-                            }
-                        }
-                    }
-
-                    if (showError) {
-                        Text(
-                            text = "Completa tus datos y elige al menos un juego.",
-                            color = Color(0xFFFFB4AB),
-                            style = MaterialTheme.typography.bodySmall
+                    if (currentStep == 1) {
+                        OutlinedTextField(
+                            value = fullName,
+                            onValueChange = {
+                                fullName = it
+                                showError = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                            label = { Text("Nombre") },
+                            singleLine = true
                         )
+                        OutlinedTextField(
+                            value = gamerTag,
+                            onValueChange = {
+                                gamerTag = it
+                                showError = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Gamertag") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = {
+                                email = it
+                                showError = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Correo") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                        )
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = {
+                                password = it
+                                showError = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                            label = { Text("Contrasena") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                        )
+                        OutlinedTextField(
+                            value = region,
+                            onValueChange = {
+                                region = it
+                                showError = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Region") },
+                            singleLine = true
+                        )
+                        
+                        if (showError) {
+                            Text(
+                                text = "Por favor, completa todos los campos para continuar.",
+                                color = Color(0xFFFFB4AB),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                if (step1Valid) {
+                                    currentStep = 2
+                                    showError = false
+                                } else {
+                                    showError = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Siguiente")
+                        }
                     }
-                    Button(
-                        onClick = {
-                            if (canSubmit) {
-                                onRegister(
-                                    UserProfile(
-                                        fullName = fullName,
-                                        gamerTag = gamerTag,
-                                        email = email,
-                                        region = region,
-                                        platform = selectedPlatform,
-                                        favoriteGames = selectedGames.toList()
+
+                    if (currentStep == 2) {
+                        Text("Selecciona una plataforma", fontWeight = FontWeight.SemiBold, color = Color.White)
+                        
+                        val platformItems = listOf(
+                            Triple("PC", Icons.Default.Computer, "Juegos de computadora"),
+                            Triple("PlayStation", Icons.Default.SportsEsports, "Consola de Sony"),
+                            Triple("Xbox", Icons.Default.VideogameAsset, "Consola de Microsoft"),
+                            Triple("Nintendo", Icons.Default.SportsEsports, "Nintendo Switch"),
+                            Triple("Mobile", Icons.Default.Smartphone, "Celulares y Tablets")
+                        )
+
+                        platformItems.forEach { (platform, icon, desc) ->
+                            val isSelected = selectedPlatform == platform
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF1E3528) else Color(0xFF242933)
+                                ),
+                                border = BorderStroke(
+                                    width = 1.5.dp,
+                                    color = if (isSelected) Color(0xFF7CFFB2) else Color.Transparent
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedPlatform = platform }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = platform,
+                                        tint = if (isSelected) Color(0xFF7CFFB2) else Color.White,
+                                        modifier = Modifier.size(32.dp)
                                     )
-                                )
-                            } else {
-                                showError = true
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(platform, fontWeight = FontWeight.Bold, color = Color.White)
+                                        Text(desc, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                                    }
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Selected",
+                                            tint = Color(0xFF7CFFB2)
+                                        )
+                                    }
+                                }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Registrarme")
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            TextButton(
+                                onClick = { currentStep = 1 },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Atrás", color = Color.Gray)
+                            }
+                            Button(
+                                onClick = { currentStep = 3 },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Siguiente")
+                            }
+                        }
                     }
+
+                    if (currentStep == 3) {
+                        Text("Elige tus juegos favoritos", fontWeight = FontWeight.SemiBold, color = Color.White)
+                        
+                        // Botón dinámico para abrir la ventana / Dialog
+                        Button(
+                            onClick = { isDialogOpen = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242933)),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFF7CFFB2).copy(alpha = 0.3f))
+                        ) {
+                            Text(
+                                text = if (totalSelectedGames.isEmpty()) "Seleccionar Juegos (${totalSelectedGames.size})" else "Juegos seleccionados (${totalSelectedGames.size})",
+                                color = Color(0xFF7CFFB2)
+                            )
+                        }
+
+                        // Chips informativos para mostrar lo seleccionado actualmente
+                        if (totalSelectedGames.isNotEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                totalSelectedGames.take(4).forEach { game ->
+                                    AssistChip(onClick = {}, label = { Text(game) })
+                                }
+                                if (totalSelectedGames.size > 4) {
+                                    AssistChip(onClick = {}, label = { Text("+${totalSelectedGames.size - 4}") })
+                                }
+                            }
+                        }
+
+                        if (showError) {
+                            Text(
+                                text = "Por favor, abre la ventana y escoge al menos un juego.",
+                                color = Color(0xFFFFB4AB),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            TextButton(
+                                onClick = { currentStep = 2 },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Atrás", color = Color.Gray)
+                            }
+                            Button(
+                                onClick = {
+                                    if (canSubmit) {
+                                        onRegister(
+                                            UserProfile(
+                                                fullName = fullName,
+                                                gamerTag = gamerTag,
+                                                email = email,
+                                                region = region,
+                                                platform = selectedPlatform,
+                                                favoriteGames = totalSelectedGames
+                                            )
+                                )
+                                    } else {
+                                        showError = true
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Registrarme")
+                            }
+                        }
+                    }
+
                     TextButton(
                         onClick = onBackToLogin,
                         modifier = Modifier.fillMaxWidth()
@@ -569,6 +733,134 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
                 }
             }
         }
+    }
+
+    // Ventana modal (AlertDialog) dinámico para la selección de juegos
+    if (isDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { isDialogOpen = false },
+            title = {
+                Text(
+                    "Selecciona tus juegos",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        "Elige de nuestra lista o ingresa un juego personalizado al final.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+
+                    // Cuadrícula de juegos con imágenes simbólicas y nombres
+                    Box(modifier = Modifier.height(260.dp)) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(gameOptions) { (gameName, imageRes) ->
+                                val isSelected = gameName in selectedGames
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) Color(0xFF1E3528) else Color(0xFF242933)
+                                    ),
+                                    border = BorderStroke(
+                                        width = 1.5.dp,
+                                        color = if (isSelected) Color(0xFF7CFFB2) else Color.Transparent
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1.1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            selectedGames = if (isSelected) {
+                                                selectedGames - gameName
+                                            } else {
+                                                selectedGames + gameName
+                                            }
+                                            showError = false
+                                        }
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(8.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            // Cambiado de Icon a Image para que muestre la foto real cargada a color en lugar de un icono plano monocromático.
+                                            Image(
+                                                painter = painterResource(id = imageRes),
+                                                contentDescription = gameName,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(60.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = gameName,
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Selected",
+                                                tint = Color(0xFF7CFFB2),
+                                                modifier = Modifier
+                                                    .padding(6.dp)
+                                                    .size(18.dp)
+                                                    .align(Alignment.TopEnd)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Opción abierta de "Otros"
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Otro juego (Opción abierta)", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(
+                            value = customGameInput,
+                            onValueChange = { 
+                                customGameInput = it
+                                showError = false
+                            },
+                            placeholder = { Text("Ej. Minecraft, Elden Ring...") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { isDialogOpen = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7CFFB2), contentColor = Color.Black),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Listo", fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color(0xFF181B21),
+            textContentColor = Color.White,
+            titleContentColor = Color.White
+        )
     }
 }
 
@@ -672,7 +964,7 @@ private fun FriendCard(profile: UserProfile, isFriend: Boolean, onAddFriend: () 
 }
 
 @Composable
-private fun ProfileSection(profile: UserProfile) {
+private fun ProfileSection(profile: UserProfile, onLogout: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Mi perfil", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Card(
@@ -693,6 +985,15 @@ private fun ProfileSection(profile: UserProfile) {
                     }
                 }
             }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935), contentColor = Color.White),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text("Cerrar Sesión")
         }
     }
 }
