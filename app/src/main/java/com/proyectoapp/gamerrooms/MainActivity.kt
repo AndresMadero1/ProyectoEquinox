@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -90,9 +91,24 @@ private data class ChatMessage(
     val time: String,
 )
 
+private data class UserProfile(
+    val fullName: String,
+    val gamerTag: String,
+    val email: String,
+    val region: String,
+    val platform: String,
+    val favoriteGames: List<String>,
+)
+
 private enum class AuthMode {
     Login,
     Register
+}
+
+private enum class MainSection {
+    Groups,
+    Friends,
+    Profile
 }
 
 private val sampleGroups = listOf(
@@ -108,18 +124,43 @@ private val sampleMessages = listOf(
     ChatMessage("Raptor", "Perfecto, dejen el codigo de sala fijado.", "20:18"),
 )
 
+private val defaultProfile = UserProfile(
+    fullName = "Invitado Gamer",
+    gamerTag = "PlayerOne",
+    email = "player@gamerrooms.app",
+    region = "LATAM",
+    platform = "PC",
+    favoriteGames = listOf("Valorant", "Fortnite")
+)
+
+private val discoverableFriends = listOf(
+    UserProfile("Camila Torres", "NyxCarry", "nyx@gamerrooms.app", "LATAM", "PC", listOf("Valorant", "League of Legends")),
+    UserProfile("Mateo Rios", "PixelMage", "pixel@gamerrooms.app", "LAN", "PlayStation", listOf("Destiny 2", "Fortnite")),
+    UserProfile("Sara Vega", "RaidQueen", "sara@gamerrooms.app", "NA/LATAM", "Xbox", listOf("Call of Duty", "Minecraft")),
+    UserProfile("Luis Moreno", "ZeroBuild", "zero@gamerrooms.app", "LATAM", "Nintendo", listOf("Fortnite", "Minecraft")),
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GamerRoomsApp() {
     var isLoggedIn by remember { mutableStateOf(false) }
+    var myProfile by remember { mutableStateOf(defaultProfile) }
 
     if (!isLoggedIn) {
-        LoginScreen(onLogin = { isLoggedIn = true })
+        LoginScreen(
+            onLogin = { isLoggedIn = true },
+            onRegister = { profile ->
+                myProfile = profile
+                isLoggedIn = true
+            }
+        )
         return
     }
 
+    var selectedSection by remember { mutableStateOf(MainSection.Groups) }
     var query by remember { mutableStateOf("") }
     var selectedGroup by remember { mutableStateOf(sampleGroups.first()) }
+    val friends = remember { mutableStateListOf<UserProfile>() }
     val filteredGroups = sampleGroups.filter {
         it.name.contains(query, ignoreCase = true) ||
             it.game.contains(query, ignoreCase = true) ||
@@ -156,38 +197,66 @@ private fun GamerRoomsApp() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                HeaderPanel()
-            }
-            item {
-                SearchBox(query = query, onQueryChange = { query = it })
-            }
-            itemsIndexed(filteredGroups) { index, group ->
-                GroupCard(
-                    group = group,
-                    isSelected = group == selectedGroup,
-                    onJoin = { selectedGroup = group }
+                SectionTabs(
+                    selectedSection = selectedSection,
+                    onSectionSelected = { selectedSection = it }
                 )
-                // Insertamos publicidad después del segundo elemento (índice 1)
-                if (index == 1 && filteredGroups.size > 1) {
-                    Spacer(Modifier.height(16.dp))
-                    AdCard()
-                }
             }
-            item {
-                ChatRoom(
-                    group = selectedGroup,
-                    messages = currentMessages,
-                    onSendMessage = { text ->
-                        currentMessages.add(ChatMessage("Tú", text, "Ahora"))
+
+            when (selectedSection) {
+                MainSection.Groups -> {
+                    item {
+                        HeaderPanel()
                     }
-                )
+                    item {
+                        SearchBox(query = query, onQueryChange = { query = it })
+                    }
+                    itemsIndexed(filteredGroups) { index, group ->
+                        GroupCard(
+                            group = group,
+                            isSelected = group == selectedGroup,
+                            onJoin = { selectedGroup = group }
+                        )
+                        // Insertamos publicidad después del segundo elemento (índice 1)
+                        if (index == 1 && filteredGroups.size > 1) {
+                            Spacer(Modifier.height(16.dp))
+                            AdCard()
+                        }
+                    }
+                    item {
+                        ChatRoom(
+                            group = selectedGroup,
+                            messages = currentMessages,
+                            onSendMessage = { text ->
+                                currentMessages.add(ChatMessage("Tú", text, "Ahora"))
+                            }
+                        )
+                    }
+                }
+                MainSection.Friends -> {
+                    item {
+                        FriendsSection(
+                            friends = friends,
+                            onAddFriend = { friend ->
+                                if (friends.none { it.gamerTag == friend.gamerTag }) {
+                                    friends.add(friend)
+                                }
+                            }
+                        )
+                    }
+                }
+                MainSection.Profile -> {
+                    item {
+                        ProfileSection(profile = myProfile)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun LoginScreen(onLogin: () -> Unit) {
+private fun LoginScreen(onLogin: () -> Unit, onRegister: (UserProfile) -> Unit) {
     var authMode by remember { mutableStateOf(AuthMode.Login) }
 
     when (authMode) {
@@ -196,7 +265,7 @@ private fun LoginScreen(onLogin: () -> Unit) {
             onCreateAccount = { authMode = AuthMode.Register }
         )
         AuthMode.Register -> RegisterForm(
-            onRegister = onLogin,
+            onRegister = onRegister,
             onBackToLogin = { authMode = AuthMode.Login }
         )
     }
@@ -312,7 +381,7 @@ private fun LoginForm(onLogin: () -> Unit, onCreateAccount: () -> Unit) {
 }
 
 @Composable
-private fun RegisterForm(onRegister: () -> Unit, onBackToLogin: () -> Unit) {
+private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () -> Unit) {
     val gameOptions = listOf("Valorant", "League of Legends", "Fortnite", "Destiny 2", "Minecraft", "Call of Duty")
     val platformOptions = listOf("PC", "PlayStation", "Xbox", "Nintendo", "Mobile")
 
@@ -472,7 +541,16 @@ private fun RegisterForm(onRegister: () -> Unit, onBackToLogin: () -> Unit) {
                     Button(
                         onClick = {
                             if (canSubmit) {
-                                onRegister()
+                                onRegister(
+                                    UserProfile(
+                                        fullName = fullName,
+                                        gamerTag = gamerTag,
+                                        email = email,
+                                        region = region,
+                                        platform = selectedPlatform,
+                                        favoriteGames = selectedGames.toList()
+                                    )
+                                )
                             } else {
                                 showError = true
                             }
@@ -491,6 +569,139 @@ private fun RegisterForm(onRegister: () -> Unit, onBackToLogin: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SectionTabs(selectedSection: MainSection, onSectionSelected: (MainSection) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = selectedSection == MainSection.Groups,
+            onClick = { onSectionSelected(MainSection.Groups) },
+            label = { Text("Grupos") }
+        )
+        FilterChip(
+            selected = selectedSection == MainSection.Friends,
+            onClick = { onSectionSelected(MainSection.Friends) },
+            label = { Text("Amigos") }
+        )
+        FilterChip(
+            selected = selectedSection == MainSection.Profile,
+            onClick = { onSectionSelected(MainSection.Profile) },
+            label = { Text("Mi perfil") }
+        )
+    }
+}
+
+@Composable
+private fun FriendsSection(friends: List<UserProfile>, onAddFriend: (UserProfile) -> Unit) {
+    var friendQuery by remember { mutableStateOf("") }
+    val results = discoverableFriends.filter { friend ->
+        friend.fullName.contains(friendQuery, ignoreCase = true) ||
+            friend.gamerTag.contains(friendQuery, ignoreCase = true) ||
+            friend.favoriteGames.any { it.contains(friendQuery, ignoreCase = true) }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Amigos", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = friendQuery,
+            onValueChange = { friendQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            label = { Text("Buscar por gamertag o juego") },
+            singleLine = true
+        )
+        Text("Resultados", fontWeight = FontWeight.SemiBold)
+        results.forEach { friend ->
+            FriendCard(
+                profile = friend,
+                isFriend = friends.any { it.gamerTag == friend.gamerTag },
+                onAddFriend = { onAddFriend(friend) }
+            )
+        }
+        Text("Mis amigos", fontWeight = FontWeight.SemiBold)
+        if (friends.isEmpty()) {
+            Text("Aun no has agregado amigos.", color = Color(0xFFAEB8B1))
+        } else {
+            friends.forEach { friend ->
+                FriendCard(profile = friend, isFriend = true, onAddFriend = {})
+            }
+        }
+    }
+}
+
+@Composable
+private fun FriendCard(profile: UserProfile, isFriend: Boolean, onAddFriend: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(44.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF25322D)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF7CFFB2))
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(profile.gamerTag, fontWeight = FontWeight.Bold)
+                    Text("${profile.fullName} - ${profile.platform} - ${profile.region}", color = Color(0xFFAEB8B1))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                profile.favoriteGames.take(3).forEach { game ->
+                    AssistChip(onClick = {}, label = { Text(game) })
+                }
+            }
+            Button(
+                onClick = onAddFriend,
+                enabled = !isFriend,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(if (isFriend) "Agregado" else "Agregar amigo")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSection(profile: UserProfile) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Mi perfil", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
+            border = BorderStroke(1.dp, Color(0xFF7CFFB2).copy(alpha = 0.18f)),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(profile.gamerTag, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                Text(profile.fullName, color = Color(0xFFD6E2DA))
+                ProfileRow("Correo", profile.email)
+                ProfileRow("Region", profile.region)
+                ProfileRow("Plataforma", profile.platform)
+                Text("Juegos de interes", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    profile.favoriteGames.take(3).forEach { game ->
+                        AssistChip(onClick = {}, label = { Text(game) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Color(0xFFAEB8B1))
+        Text(value, fontWeight = FontWeight.SemiBold)
     }
 }
 
