@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "GamerRooms"
 include(":app")
 
+include(":app")
