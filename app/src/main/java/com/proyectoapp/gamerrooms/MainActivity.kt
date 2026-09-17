@@ -255,12 +255,18 @@ private fun GamerRoomsApp() {
                         Text(sectionTitle(selectedSection), fontWeight = FontWeight.Bold)
                     },
                     navigationIcon = {
+                        val rotation by animateFloatAsState(
+                            targetValue = if (drawerState.isOpen) 90f else 0f,
+                            animationSpec = tween(durationMillis = 300),
+                            label = "hamburgerRotation"
+                        )
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            GreenFireFrame(active = drawerState.isOpen) {
+                            GreenFireFrame(active = drawerState.isOpen || drawerState.isAnimationRunning) {
                                 Icon(
                                     Icons.Default.Menu,
                                     contentDescription = "Abrir menu",
                                     modifier = Modifier
+                                        .graphicsLayer { rotationZ = rotation }
                                         .background(Color(0xFF111318), RoundedCornerShape(8.dp))
                                         .padding(6.dp),
                                     tint = Color(0xFF7CFFB2)
@@ -365,6 +371,7 @@ private fun LoginForm(onLogin: () -> Unit, onCreateAccount: () -> Unit) {
             .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
+        FloatingChispasBackground()
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(18.dp)
@@ -502,14 +509,16 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
     val step2Valid = selectedPlatform.isNotBlank()
     val canSubmit = step1Valid && step2Valid && totalSelectedGames.isNotEmpty()
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF101216))
-            .imePadding(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        FloatingChispasBackground()
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Transparent)
+                .imePadding(),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -961,6 +970,7 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
             titleContentColor = Color.White
         )
     }
+    }
 }
 
 private fun sectionTitle(section: MainSection): String {
@@ -972,6 +982,44 @@ private fun sectionTitle(section: MainSection): String {
 }
 
 @Composable
+private fun FloatingChispasBackground() {
+    val infiniteTransition = rememberInfiniteTransition(label = "chispas")
+    val animValue by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(6000),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "upward"
+    )
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val width = size.width
+        val height = size.height
+        if (width > 0 && height > 0) {
+            for (i in 1..20) {
+                val seedX = (i * 123456 % 1000) / 1000f
+                val seedSpeed = 0.4f + (i * 789 % 60) / 100f
+                val currentProgress = (animValue * seedSpeed + seedX) % 1f
+                
+                val x = (seedX * width + kotlin.math.sin(currentProgress * 2 * kotlin.math.PI.toFloat()) * 40f) % width
+                val y = height - (currentProgress * height)
+                val alpha = kotlin.math.sin(currentProgress * kotlin.math.PI.toFloat()) * 0.65f
+                val radius = 4f + (i % 4) * 2f
+
+                drawCircle(
+                    color = Color(0xFF7CFFB2),
+                    radius = radius,
+                    center = androidx.compose.ui.geometry.Offset(x, y),
+                    alpha = alpha
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun GreenFireFrame(
     modifier: Modifier = Modifier,
     active: Boolean = true,
@@ -979,28 +1027,40 @@ private fun GreenFireFrame(
 ) {
     val fire = rememberInfiniteTransition(label = "greenFireFrame")
     val glow by fire.animateFloat(
-        initialValue = if (active) 0.22f else 0.08f,
-        targetValue = if (active) 0.82f else 0.18f,
+        initialValue = if (active) 0.25f else 0.08f,
+        targetValue = if (active) 0.85f else 0.18f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 720),
             repeatMode = RepeatMode.Reverse
         ),
         label = "greenFireGlow"
     )
+    val shift by fire.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3500),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "gradientShift"
+    )
 
     Box(
         modifier = modifier
             .background(
-                brush = Brush.verticalGradient(
+                brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFB9FFD1).copy(alpha = glow),
-                        Color(0xFF7CFFB2).copy(alpha = glow * 0.68f),
+                        Color(0xFF123A25).copy(alpha = 0.95f),
+                        Color(0xFF7CFFB2).copy(alpha = glow),
+                        Color(0xFFB9FFD1).copy(alpha = glow * 0.72f),
                         Color(0xFF123A25).copy(alpha = 0.95f)
-                    )
+                    ),
+                    start = androidx.compose.ui.geometry.Offset(shift, 0f),
+                    end = androidx.compose.ui.geometry.Offset(shift + 400f, 400f)
                 ),
                 shape = RoundedCornerShape(8.dp)
             )
-            .padding(1.dp)
+            .padding(1.5.dp)
     ) {
         content()
     }
@@ -1481,8 +1541,19 @@ private fun GroupCard(group: GamerGroup, isSelected: Boolean, onJoin: () -> Unit
         animationSpec = tween(durationMillis = 260),
         label = "groupIconSize"
     )
+    val cardScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.02f else 1f,
+        animationSpec = tween(durationMillis = 260),
+        label = "groupCardScale"
+    )
 
-    GreenFireFrame(active = isSelected) {
+    GreenFireFrame(
+        active = isSelected,
+        modifier = Modifier.graphicsLayer {
+            scaleX = cardScale
+            scaleY = cardScale
+        }
+    ) {
         Card(
             colors = CardDefaults.cardColors(containerColor = cardColor),
             border = BorderStroke(1.dp, borderColor),
@@ -1542,10 +1613,21 @@ private fun ChatRoom(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Sala: ${group.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             messages.forEach { message ->
+                var flashActive by remember(message) { mutableStateOf(message.time == "Ahora") }
+                val flashAlpha by animateFloatAsState(
+                    targetValue = if (flashActive) 0.35f else 0f,
+                    animationSpec = tween(durationMillis = 800),
+                    finishedListener = { flashActive = false },
+                    label = "messageFlash"
+                )
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF20242C), RoundedCornerShape(8.dp))
+                        .background(
+                            if (flashAlpha > 0f) Color(0xFF7CFFB2).copy(alpha = flashAlpha) else Color(0xFF20242C),
+                            RoundedCornerShape(8.dp)
+                        )
                         .padding(12.dp)
                 ) {
                     Row {
@@ -1565,6 +1647,15 @@ private fun ChatRoom(
                     label = { Text("Mensaje") },
                     singleLine = true
                 )
+                
+                val sendButtonPulse = rememberInfiniteTransition(label = "sendPulse")
+                val sendGlow by sendButtonPulse.animateFloat(
+                    initialValue = 0.5f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(400), RepeatMode.Reverse),
+                    label = "sendGlow"
+                )
+
                 IconButton(
                     onClick = {
                         if (draft.isNotBlank()) {
@@ -1573,7 +1664,11 @@ private fun ChatRoom(
                         }
                     }
                 ) {
-                    Icon(Icons.Default.Send, contentDescription = "Enviar")
+                    Icon(
+                        Icons.Default.Send,
+                        contentDescription = "Enviar",
+                        tint = if (draft.isNotBlank()) Color(0xFF7CFFB2).copy(alpha = sendGlow) else Color.Gray
+                    )
                 }
             }
         }
