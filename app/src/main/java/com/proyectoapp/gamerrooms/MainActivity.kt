@@ -39,9 +39,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -101,6 +105,18 @@ private fun GamerRoomsApp() {
             it.platform.contains(query, ignoreCase = true)
     }
 
+    val messagesPerGroup = remember {
+        mutableStateMapOf<String, SnapshotStateList<ChatMessage>>().apply {
+            sampleGroups.forEach { group ->
+                put(group.name, sampleMessages.toMutableStateList())
+            }
+        }
+    }
+
+    val currentMessages = messagesPerGroup[selectedGroup.name] ?: remember(selectedGroup.name) {
+        mutableStateListOf<ChatMessage>().also { messagesPerGroup[selectedGroup.name] = it }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -132,7 +148,13 @@ private fun GamerRoomsApp() {
                 )
             }
             item {
-                ChatRoom(group = selectedGroup)
+                ChatRoom(
+                    group = selectedGroup,
+                    messages = currentMessages,
+                    onSendMessage = { text ->
+                        currentMessages.add(ChatMessage("Tú", text, "Ahora"))
+                    }
+                )
             }
         }
     }
@@ -223,7 +245,11 @@ private fun GroupCard(group: GamerGroup, isSelected: Boolean, onJoin: () -> Unit
 }
 
 @Composable
-private fun ChatRoom(group: GamerGroup) {
+private fun ChatRoom(
+    group: GamerGroup,
+    messages: List<ChatMessage>,
+    onSendMessage: (String) -> Unit
+) {
     var draft by remember(group.name) { mutableStateOf("") }
 
     Card(
@@ -232,7 +258,7 @@ private fun ChatRoom(group: GamerGroup) {
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Sala: ${group.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            sampleMessages.forEach { message ->
+            messages.forEach { message ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -256,7 +282,14 @@ private fun ChatRoom(group: GamerGroup) {
                     label = { Text("Mensaje") },
                     singleLine = true
                 )
-                IconButton(onClick = { draft = "" }) {
+                IconButton(
+                    onClick = {
+                        if (draft.isNotBlank()) {
+                            onSendMessage(draft)
+                            draft = ""
+                        }
+                    }
+                ) {
                     Icon(Icons.Default.Send, contentDescription = "Enviar")
                 }
             }
