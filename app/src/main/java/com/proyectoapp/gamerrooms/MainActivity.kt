@@ -5,10 +5,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,13 +31,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Computer
@@ -54,11 +61,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -66,6 +77,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +85,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
@@ -80,12 +93,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -201,77 +216,100 @@ private fun GamerRoomsApp() {
     val currentMessages = messagesPerGroup[selectedGroup.name] ?: remember(selectedGroup.name) {
         mutableStateListOf<ChatMessage>().also { messagesPerGroup[selectedGroup.name] = it }
     }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text("GamerRooms", fontWeight = FontWeight.Bold)
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            GamerDrawer(
+                selectedSection = selectedSection,
+                onSectionSelected = { section ->
+                    selectedSection = section
+                    scope.launch { drawerState.close() }
                 }
             )
-        },
-        containerColor = Color(0xFF101216)
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item {
-                SectionTabs(
-                    selectedSection = selectedSection,
-                    onSectionSelected = { selectedSection = it }
-                )
-            }
-
-            when (selectedSection) {
-                MainSection.Groups -> {
-                    item {
-                        HeaderPanel()
-                    }
-                    item {
-                        SearchBox(query = query, onQueryChange = { query = it })
-                    }
-                    itemsIndexed(filteredGroups) { index, group ->
-                        AnimatedGroupCard(
-                            index = index,
-                            group = group,
-                            isSelected = group == selectedGroup,
-                            onJoin = { selectedGroup = group }
-                        )
-                        // Insertamos publicidad después del segundo elemento (índice 1)
-                        if (index == 1 && filteredGroups.size > 1) {
-                            Spacer(Modifier.height(16.dp))
-                            AdCard()
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(sectionTitle(selectedSection), fontWeight = FontWeight.Bold)
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            GreenFireFrame(active = drawerState.isOpen) {
+                                Icon(
+                                    Icons.Default.Menu,
+                                    contentDescription = "Abrir menu",
+                                    modifier = Modifier
+                                        .background(Color(0xFF111318), RoundedCornerShape(8.dp))
+                                        .padding(6.dp),
+                                    tint = Color(0xFF7CFFB2)
+                                )
+                            }
                         }
                     }
-                    item {
-                        ChatRoom(
-                            group = selectedGroup,
-                            messages = currentMessages,
-                            onSendMessage = { text ->
-                                currentMessages.add(ChatMessage("Tú", text, "Ahora"))
+                )
+            },
+            containerColor = Color(0xFF101216)
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+
+                when (selectedSection) {
+                    MainSection.Groups -> {
+                        item {
+                            HeaderPanel()
+                        }
+                        item {
+                            SearchBox(query = query, onQueryChange = { query = it })
+                        }
+                        itemsIndexed(filteredGroups) { index, group ->
+                            AnimatedGroupCard(
+                                index = index,
+                                group = group,
+                                isSelected = group == selectedGroup,
+                                onJoin = { selectedGroup = group }
+                            )
+                            // Insertamos publicidad después del segundo elemento (índice 1)
+                            if (index == 1 && filteredGroups.size > 1) {
+                                Spacer(Modifier.height(16.dp))
+                                AdCard()
                             }
-                        )
-                    }
-                }
-                MainSection.Friends -> {
-                    item {
-                        FriendsSection(
-                            friends = friends,
-                            onAddFriend = { friend ->
-                                if (friends.none { it.gamerTag == friend.gamerTag }) {
-                                    friends.add(friend)
+                        }
+                        item {
+                            ChatRoom(
+                                group = selectedGroup,
+                                messages = currentMessages,
+                                onSendMessage = { text ->
+                                    currentMessages.add(ChatMessage("Tú", text, "Ahora"))
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
-                }
-                MainSection.Profile -> {
-                    item {
-                        ProfileSection(profile = myProfile, onLogout = { isLoggedIn = false })
+                    MainSection.Friends -> {
+                        item {
+                            FriendsSection(
+                                friends = friends,
+                                onAddFriend = { friend ->
+                                    if (friends.none { it.gamerTag == friend.gamerTag }) {
+                                        friends.add(friend)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    MainSection.Profile -> {
+                        item {
+                            ProfileSection(profile = myProfile, onLogout = { isLoggedIn = false })
+                        }
                     }
                 }
             }
@@ -872,23 +910,205 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
     }
 }
 
+private fun sectionTitle(section: MainSection): String {
+    return when (section) {
+        MainSection.Groups -> "Grupos"
+        MainSection.Friends -> "Amigos"
+        MainSection.Profile -> "Mi perfil"
+    }
+}
+
 @Composable
-private fun SectionTabs(selectedSection: MainSection, onSectionSelected: (MainSection) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(
-            selected = selectedSection == MainSection.Groups,
-            onClick = { onSectionSelected(MainSection.Groups) },
-            label = { Text("Grupos") }
+private fun GreenFireFrame(
+    modifier: Modifier = Modifier,
+    active: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val fire = rememberInfiniteTransition(label = "greenFireFrame")
+    val glow by fire.animateFloat(
+        initialValue = if (active) 0.22f else 0.08f,
+        targetValue = if (active) 0.82f else 0.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 720),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "greenFireGlow"
+    )
+
+    Box(
+        modifier = modifier
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFB9FFD1).copy(alpha = glow),
+                        Color(0xFF7CFFB2).copy(alpha = glow * 0.68f),
+                        Color(0xFF123A25).copy(alpha = 0.95f)
+                    )
+                ),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(1.dp)
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun GreenFireButton(
+    text: String,
+    enabled: Boolean = true,
+    isActive: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val fire = rememberInfiniteTransition(label = "greenFireButton")
+    val glow by fire.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 620),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "buttonFireGlow"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isActive && enabled) 1.02f else 1f,
+        animationSpec = tween(durationMillis = 220),
+        label = "buttonFireScale"
+    )
+
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+            shadowElevation = if (enabled) 10f * glow else 0f
+        },
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF7CFFB2).copy(alpha = 0.18f * glow),
+                            Color(0xFFB9FFD1).copy(alpha = 0.28f * glow),
+                            Color(0xFF7CFFB2).copy(alpha = 0.18f * glow)
+                        )
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(text)
+        }
+    }
+}
+
+@Composable
+private fun GamerDrawer(selectedSection: MainSection, onSectionSelected: (MainSection) -> Unit) {
+    val fire = rememberInfiniteTransition(label = "drawerFire")
+    val fireAlpha by fire.animateFloat(
+        initialValue = 0.18f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "drawerFireAlpha"
+    )
+
+    ModalDrawerSheet(
+        drawerContainerColor = Color(0xFF111318),
+        drawerContentColor = Color(0xFFE7ECE8)
+    ) {
+        GreenFireFrame(modifier = Modifier.fillMaxWidth(), active = true) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0xFFB9FFD1).copy(alpha = fireAlpha),
+                                Color(0xFF163B28),
+                                Color(0xFF111318)
+                            )
+                        )
+                    )
+                    .padding(20.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("GamerRooms", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Text("Menu", color = Color(0xFFD6E2DA))
+                }
+            }
+        }
+        DrawerDestination(
+            section = MainSection.Groups,
+            selectedSection = selectedSection,
+            label = "Grupos",
+            onSectionSelected = onSectionSelected
         )
-        FilterChip(
-            selected = selectedSection == MainSection.Friends,
-            onClick = { onSectionSelected(MainSection.Friends) },
-            label = { Text("Amigos") }
+        DrawerDestination(
+            section = MainSection.Friends,
+            selectedSection = selectedSection,
+            label = "Amigos",
+            onSectionSelected = onSectionSelected
         )
-        FilterChip(
-            selected = selectedSection == MainSection.Profile,
-            onClick = { onSectionSelected(MainSection.Profile) },
-            label = { Text("Mi perfil") }
+        DrawerDestination(
+            section = MainSection.Profile,
+            selectedSection = selectedSection,
+            label = "Perfil",
+            onSectionSelected = onSectionSelected
+        )
+    }
+}
+
+@Composable
+private fun DrawerDestination(
+    section: MainSection,
+    selectedSection: MainSection,
+    label: String,
+    onSectionSelected: (MainSection) -> Unit
+) {
+    val selected = selectedSection == section
+    val selectedColor by animateColorAsState(
+        targetValue = if (selected) Color(0xFF7CFFB2) else Color(0xFFAEB8B1),
+        animationSpec = tween(durationMillis = 260),
+        label = "drawerItemColor"
+    )
+    val fireScale by animateFloatAsState(
+        targetValue = if (selected) 1.03f else 1f,
+        animationSpec = tween(durationMillis = 220),
+        label = "drawerItemFireScale"
+    )
+
+    GreenFireFrame(
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .graphicsLayer {
+                scaleX = fireScale
+                scaleY = fireScale
+            },
+        active = selected
+    ) {
+        NavigationDrawerItem(
+            label = { Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
+            selected = selected,
+            onClick = { onSectionSelected(section) },
+            icon = {
+                Icon(
+                    imageVector = when (section) {
+                        MainSection.Groups -> Icons.Default.Group
+                        MainSection.Friends -> Icons.Default.Person
+                        MainSection.Profile -> Icons.Default.AccountCircle
+                    },
+                    contentDescription = null,
+                    tint = selectedColor
+                )
+            },
+            modifier = Modifier.background(Color(0xFF111318), RoundedCornerShape(8.dp))
         )
     }
 }
@@ -973,6 +1193,24 @@ private fun FriendCard(profile: UserProfile, isFriend: Boolean, onAddFriend: () 
 
 @Composable
 private fun ProfileSection(profile: UserProfile, onLogout: () -> Unit) {
+    var visible by remember(profile.gamerTag) { mutableStateOf(false) }
+    val avatarColors = listOf(Color(0xFF7CFFB2), Color(0xFF8DB7FF), Color(0xFFFFD166))
+    var avatarIndex by remember(profile.gamerTag) { mutableStateOf(0) }
+    val borderColor by animateColorAsState(
+        targetValue = if (visible) Color(0xFF7CFFB2).copy(alpha = 0.38f) else Color(0xFF7CFFB2).copy(alpha = 0.08f),
+        animationSpec = tween(durationMillis = 420),
+        label = "profileBorderColor"
+    )
+    val avatarColor by animateColorAsState(
+        targetValue = avatarColors[avatarIndex],
+        animationSpec = tween(durationMillis = 360),
+        label = "avatarFireColor"
+    )
+
+    LaunchedEffect(profile.gamerTag) {
+        visible = true
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Mi perfil", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         AnimatedVisibility(
@@ -983,29 +1221,57 @@ private fun ProfileSection(profile: UserProfile, onLogout: () -> Unit) {
                     initialOffsetY = { it / 4 }
                 )
         ) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
-                border = BorderStroke(1.dp, borderColor),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(profile.gamerTag, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                    Text(profile.fullName, color = Color(0xFFD6E2DA))
-                    ProfileRow("Correo", profile.email)
-                    ProfileRow("Region", profile.region)
-                    ProfileRow("Plataforma", profile.platform)
-                    Text("Juegos de interes", fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        profile.favoriteGames.take(3).forEachIndexed { index, game ->
-                            AnimatedVisibility(
-                                visible = visible,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = index * 90)) +
-                                    slideInVertically(
-                                        animationSpec = tween(durationMillis = 220, delayMillis = index * 90),
-                                        initialOffsetY = { it / 2 }
-                                    )
-                            ) {
-                                AssistChip(onClick = {}, label = { Text(game) })
+            GreenFireFrame(modifier = Modifier.fillMaxWidth(), active = true) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
+                    border = BorderStroke(1.dp, borderColor),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            GreenFireFrame(active = true) {
+                                Surface(
+                                    modifier = Modifier.size(72.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = avatarColor.copy(alpha = 0.24f)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.AccountCircle,
+                                            contentDescription = null,
+                                            tint = avatarColor,
+                                            modifier = Modifier.size(46.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(profile.gamerTag, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                                Text(profile.fullName, color = Color(0xFFD6E2DA))
+                            }
+                        }
+                        GreenFireButton(
+                            text = "Cambiar foto",
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { avatarIndex = (avatarIndex + 1) % avatarColors.size }
+                        )
+                        ProfileRow("Correo", profile.email)
+                        ProfileRow("Region", profile.region)
+                        ProfileRow("Plataforma", profile.platform)
+                        Text("Juegos de interes", fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            profile.favoriteGames.take(3).forEachIndexed { index, game ->
+                                AnimatedVisibility(
+                                    visible = visible,
+                                    enter = fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = index * 90)) +
+                                        slideInVertically(
+                                            animationSpec = tween(durationMillis = 220, delayMillis = index * 90),
+                                            initialOffsetY = { it / 2 }
+                                        )
+                                ) {
+                                    AssistChip(onClick = {}, label = { Text(game) })
+                                }
                             }
                         }
                     }
@@ -1034,28 +1300,30 @@ private fun ProfileRow(label: String, value: String) {
 
 @Composable
 private fun HeaderPanel() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(Color(0xFF1B4D3E), Color(0xFF26324A))
-                ),
-                shape = RoundedCornerShape(8.dp)
-            )
-            .padding(20.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "Encuentra tu squad",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Busca comunidades por juego, plataforma o region y entra directo a una sala activa.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFD6E2DA)
-            )
+    GreenFireFrame(modifier = Modifier.fillMaxWidth(), active = true) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(Color(0xFF143A27), Color(0xFF1B4D3E), Color(0xFF26324A))
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .padding(20.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Encuentra tu squad",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Busca comunidades por juego, plataforma o region y entra directo a una sala activa.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD6E2DA)
+                )
+            }
         }
     }
 }
@@ -1161,41 +1429,45 @@ private fun GroupCard(group: GamerGroup, isSelected: Boolean, onJoin: () -> Unit
         label = "groupIconSize"
     )
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = BorderStroke(1.dp, borderColor),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+    GreenFireFrame(active = isSelected) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = cardColor),
+            border = BorderStroke(1.dp, borderColor),
+            shape = RoundedCornerShape(8.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    modifier = Modifier.size(iconSize),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF25322D)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Group, contentDescription = null, tint = Color(0xFF7CFFB2))
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        modifier = Modifier.size(iconSize),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF25322D)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Group, contentDescription = null, tint = Color(0xFF7CFFB2))
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(group.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${group.game} - ${group.platform} - ${group.region}", color = Color(0xFFAEB8B1))
                     }
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(group.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${group.game} - ${group.platform} - ${group.region}", color = Color(0xFFAEB8B1))
+                Text(group.status, color = Color(0xFF7CFFB2), fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    group.tags.take(3).forEach { tag ->
+                        AssistChip(onClick = {}, label = { Text(tag) })
+                    }
                 }
-            }
-            Text(group.status, color = Color(0xFF7CFFB2), fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                group.tags.take(3).forEach { tag ->
-                    AssistChip(onClick = {}, label = { Text(tag) })
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${group.members} miembros", color = Color(0xFFAEB8B1), modifier = Modifier.weight(1f))
-                Button(onClick = onJoin, shape = RoundedCornerShape(8.dp)) {
-                    Text(if (isSelected) "En sala" else "Unirme")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${group.members} miembros", color = Color(0xFFAEB8B1), modifier = Modifier.weight(1f))
+                    GreenFireButton(
+                        text = if (isSelected) "En sala" else "Entrar",
+                        isActive = true,
+                        onClick = onJoin
+                    )
                 }
             }
         }
