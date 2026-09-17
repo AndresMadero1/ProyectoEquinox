@@ -3,6 +3,7 @@ package com.proyectoapp.gamerrooms
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
@@ -140,12 +141,17 @@ private fun GamerRoomsApp() {
             item {
                 SearchBox(query = query, onQueryChange = { query = it })
             }
-            items(filteredGroups) { group ->
+            itemsIndexed(filteredGroups) { index, group ->
                 GroupCard(
                     group = group,
                     isSelected = group == selectedGroup,
                     onJoin = { selectedGroup = group }
                 )
+                // Insertamos publicidad después del segundo elemento (índice 1)
+                if (index == 1 && filteredGroups.size > 1) {
+                    Spacer(Modifier.height(16.dp))
+                    AdCard()
+                }
             }
             item {
                 ChatRoom(
@@ -198,6 +204,53 @@ private fun SearchBox(query: String, onQueryChange: (String) -> Unit) {
         label = { Text("Buscar grupos") },
         singleLine = true
     )
+}
+
+@Composable
+private fun AdCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B1E23)),
+        border = BorderStroke(1.dp, Color(0xFF7CFFB2).copy(alpha = 0.2f)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Surface(
+                    color = Color(0xFF7CFFB2),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        "SPONSORED",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF102016),
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Gamer Room Pro",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Obtén salas privadas y emojis exclusivos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFAEB8B1)
+                )
+            }
+            Button(
+                onClick = { /* Acción de la publicidad */ },
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Saber más")
+            }
+        }
+    }
 }
 
 @Composable
