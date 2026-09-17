@@ -32,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -87,6 +89,11 @@ private data class ChatMessage(
     val text: String,
     val time: String,
 )
+
+private enum class AuthMode {
+    Login,
+    Register
+}
 
 private val sampleGroups = listOf(
     GamerGroup("Ranked Night Ops", "Valorant", "PC", "LATAM", 128, "Buscando duo", listOf("Competitivo", "18+", "Mic")),
@@ -181,6 +188,22 @@ private fun GamerRoomsApp() {
 
 @Composable
 private fun LoginScreen(onLogin: () -> Unit) {
+    var authMode by remember { mutableStateOf(AuthMode.Login) }
+
+    when (authMode) {
+        AuthMode.Login -> LoginForm(
+            onLogin = onLogin,
+            onCreateAccount = { authMode = AuthMode.Register }
+        )
+        AuthMode.Register -> RegisterForm(
+            onRegister = onLogin,
+            onBackToLogin = { authMode = AuthMode.Login }
+        )
+    }
+}
+
+@Composable
+private fun LoginForm(onLogin: () -> Unit, onCreateAccount: () -> Unit) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
@@ -276,6 +299,195 @@ private fun LoginScreen(onLogin: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFAEB8B1)
                     )
+                    TextButton(
+                        onClick = onCreateAccount,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Crear cuenta nueva")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegisterForm(onRegister: () -> Unit, onBackToLogin: () -> Unit) {
+    val gameOptions = listOf("Valorant", "League of Legends", "Fortnite", "Destiny 2", "Minecraft", "Call of Duty")
+    val platformOptions = listOf("PC", "PlayStation", "Xbox", "Nintendo", "Mobile")
+
+    var fullName by remember { mutableStateOf("") }
+    var gamerTag by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var region by remember { mutableStateOf("") }
+    var selectedPlatform by remember { mutableStateOf(platformOptions.first()) }
+    var selectedGames by remember { mutableStateOf(setOf<String>()) }
+    var showError by remember { mutableStateOf(false) }
+
+    val canSubmit = fullName.isNotBlank() &&
+        gamerTag.isNotBlank() &&
+        email.isNotBlank() &&
+        password.isNotBlank() &&
+        region.isNotBlank() &&
+        selectedGames.isNotEmpty()
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF101216))
+            .imePadding(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Crea tu perfil gamer",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF7CFFB2)
+                )
+                Text(
+                    text = "Tus datos e intereses ayudaran a recomendar grupos y salas.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD6E2DA)
+                )
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
+                border = BorderStroke(1.dp, Color(0xFF7CFFB2).copy(alpha = 0.18f)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    OutlinedTextField(
+                        value = fullName,
+                        onValueChange = {
+                            fullName = it
+                            showError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        label = { Text("Nombre") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = gamerTag,
+                        onValueChange = {
+                            gamerTag = it
+                            showError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Gamertag") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = {
+                            email = it
+                            showError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Correo") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = {
+                            password = it
+                            showError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                        label = { Text("Contrasena") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+                    OutlinedTextField(
+                        value = region,
+                        onValueChange = {
+                            region = it
+                            showError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Region") },
+                        singleLine = true
+                    )
+
+                    Text("Plataforma principal", fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        platformOptions.take(3).forEach { platform ->
+                            FilterChip(
+                                selected = selectedPlatform == platform,
+                                onClick = { selectedPlatform = platform },
+                                label = { Text(platform) }
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        platformOptions.drop(3).forEach { platform ->
+                            FilterChip(
+                                selected = selectedPlatform == platform,
+                                onClick = { selectedPlatform = platform },
+                                label = { Text(platform) }
+                            )
+                        }
+                    }
+
+                    Text("Juegos de interes", fontWeight = FontWeight.SemiBold)
+                    gameOptions.chunked(2).forEach { rowGames ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowGames.forEach { game ->
+                                FilterChip(
+                                    selected = game in selectedGames,
+                                    onClick = {
+                                        selectedGames = if (game in selectedGames) {
+                                            selectedGames - game
+                                        } else {
+                                            selectedGames + game
+                                        }
+                                        showError = false
+                                    },
+                                    label = { Text(game) }
+                                )
+                            }
+                        }
+                    }
+
+                    if (showError) {
+                        Text(
+                            text = "Completa tus datos y elige al menos un juego.",
+                            color = Color(0xFFFFB4AB),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            if (canSubmit) {
+                                onRegister()
+                            } else {
+                                showError = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Registrarme")
+                    }
+                    TextButton(
+                        onClick = onBackToLogin,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Ya tengo cuenta")
+                    }
                 }
             }
         }
