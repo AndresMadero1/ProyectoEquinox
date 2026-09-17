@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +23,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AssistChip
@@ -51,8 +54,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
@@ -98,6 +104,13 @@ private val sampleMessages = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GamerRoomsApp() {
+    var isLoggedIn by remember { mutableStateOf(false) }
+
+    if (!isLoggedIn) {
+        LoginScreen(onLogin = { isLoggedIn = true })
+        return
+    }
+
     var query by remember { mutableStateOf("") }
     var selectedGroup by remember { mutableStateOf(sampleGroups.first()) }
     val filteredGroups = sampleGroups.filter {
@@ -161,6 +174,109 @@ private fun GamerRoomsApp() {
                         currentMessages.add(ChatMessage("Tú", text, "Ahora"))
                     }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoginScreen(onLogin: () -> Unit) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+    val canSubmit = email.isNotBlank() && password.isNotBlank()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF101216))
+            .imePadding()
+            .padding(20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "GamerRooms",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF7CFFB2)
+                )
+                Text(
+                    text = "Entra a tu cuenta y encuentra tu proxima sala gamer.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color(0xFFD6E2DA)
+                )
+            }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
+                border = BorderStroke(1.dp, Color(0xFF7CFFB2).copy(alpha = 0.18f)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Iniciar sesion",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = {
+                            email = it
+                            showError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        label = { Text("Correo o gamertag") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = {
+                            password = it
+                            showError = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                        label = { Text("Contrasena") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+                    if (showError) {
+                        Text(
+                            text = "Completa tus datos para continuar.",
+                            color = Color(0xFFFFB4AB),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            if (canSubmit) {
+                                onLogin()
+                            } else {
+                                showError = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Entrar")
+                    }
+                    Text(
+                        text = "Registro con Cognito pendiente para la siguiente iteracion.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFAEB8B1)
+                    )
+                }
             }
         }
     }
