@@ -164,12 +164,6 @@ private val sampleGroups = listOf(
     GamerGroup("Raid Cero", "Destiny 2", "PlayStation", "LATAM", 56, "Raid a las 21:00", listOf("PvE", "Endgame")),
 )
 
-private val sampleMessages = listOf(
-    ChatMessage("Nyx", "Tenemos cupo para controller. Quien se suma?", "20:14"),
-    ChatMessage("PixelMage", "Yo entro despues de una partida corta.", "20:16"),
-    ChatMessage("Raptor", "Perfecto, dejen el codigo de sala fijado.", "20:18"),
-)
-
 // Inicialización del Cliente Global de Supabase Online
 private val supabaseClient = createSupabaseClient(
     supabaseUrl = "https://aboyxrkcbqvhwcmeqfpz.supabase.co", // URL corregida de tu proyecto
@@ -186,13 +180,6 @@ private val defaultProfile = UserProfile(
     platform = "PC",
     favoriteGames = listOf("Valorant", "Fortnite"),
     passwordHash = "123456"
-)
-
-private val discoverableFriends = listOf(
-    UserProfile("Camila Torres", "NyxCarry", "nyx@gamerrooms.app", "LATAM", "PC", listOf("Valorant", "League of Legends"), "123456"),
-    UserProfile("Mateo Rios", "PixelMage", "pixel@gamerrooms.app", "LAN", "PlayStation", listOf("Destiny 2", "Fortnite"), "123456"),
-    UserProfile("Sara Vega", "RaidQueen", "sara@gamerrooms.app", "NA/LATAM", "Xbox", listOf("Call of Duty", "Minecraft"), "123456"),
-    UserProfile("Luis Moreno", "ZeroBuild", "zero@gamerrooms.app", "LATAM", "Nintendo", listOf("Fortnite", "Minecraft"), "123456"),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -225,7 +212,7 @@ private fun GamerRoomsApp() {
     val messagesPerGroup = remember {
         mutableStateMapOf<String, SnapshotStateList<ChatMessage>>().apply {
             sampleGroups.forEach { group ->
-                put(group.name, sampleMessages.toMutableStateList())
+                put(group.name, mutableStateListOf<ChatMessage>())
             }
         }
     }
@@ -1229,10 +1216,36 @@ private fun DrawerDestination(
 @Composable
 private fun FriendsSection(friends: List<UserProfile>, onAddFriend: (UserProfile) -> Unit) {
     var friendQuery by remember { mutableStateOf("") }
-    val results = discoverableFriends.filter { friend ->
-        friend.fullName.contains(friendQuery, ignoreCase = true) ||
-            friend.gamerTag.contains(friendQuery, ignoreCase = true) ||
-            friend.favoriteGames.any { it.contains(friendQuery, ignoreCase = true) }
+    val results = remember { mutableStateListOf<UserProfile>() }
+    var isLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(friendQuery) {
+        if (friendQuery.isBlank()) {
+            results.clear()
+            return@LaunchedEffect
+        }
+        
+        // Debounce de 500ms para no saturar Supabase Postgres
+        kotlinx.coroutines.delay(500)
+        try {
+            isLoading = true
+            // Traemos todos los usuarios reales registrados online
+            val allUsers = supabaseClient.from("usuarios").select().decodeList<UserProfile>()
+            
+            // Filtramos localmente por gamertag, nombre completo o juegos favoritos
+            val filtered = allUsers.filter { user: UserProfile ->
+                user.gamerTag.contains(friendQuery, ignoreCase = true) ||
+                user.fullName.contains(friendQuery, ignoreCase = true) ||
+                user.favoriteGames.any { it.contains(friendQuery, ignoreCase = true) }
+            }
+            
+            results.clear()
+            results.addAll(filtered)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isLoading = false
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1242,17 +1255,32 @@ private fun FriendsSection(friends: List<UserProfile>, onAddFriend: (UserProfile
             onValueChange = { friendQuery = it },
             modifier = Modifier.fillMaxWidth(),
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            label = { Text("Buscar por gamertag o juego") },
+            label = { Text("Buscar por gamertag o juego en BD") },
             singleLine = true
         )
-        Text("Resultados", fontWeight = FontWeight.SemiBold)
-        results.forEach { friend ->
-            FriendCard(
-                profile = friend,
-                isFriend = friends.any { it.gamerTag == friend.gamerTag },
-                onAddFriend = { onAddFriend(friend) }
+        
+        Text("Resultados Online", fontWeight = FontWeight.SemiBold)
+        
+        if (isLoading) {
+            Text(
+                text = "Buscando guerreros en la base de datos Supabase...",
+                color = Color(0xFF7CFFB2),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(vertical = 8.dp)
             )
+        } else if (results.isEmpty() && friendQuery.isNotBlank()) {
+            Text("No se encontraron usuarios registrados con ese criterio.", color = Color.Gray)
+        } else {
+            results.forEach { friend ->
+                FriendCard(
+                    profile = friend,
+                    isFriend = friends.any { it.gamerTag == friend.gamerTag },
+                    onAddFriend = { onAddFriend(friend) }
+                )
+            }
         }
+        
         Text("Mis amigos", fontWeight = FontWeight.SemiBold)
         if (friends.isEmpty()) {
             Text("Aun no has agregado amigos.", color = Color(0xFFAEB8B1))
