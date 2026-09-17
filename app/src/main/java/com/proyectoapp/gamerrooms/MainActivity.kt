@@ -1,5 +1,9 @@
 package com.proyectoapp.gamerrooms
 
+import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -101,6 +105,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -129,13 +135,15 @@ private data class ChatMessage(
     val time: String,
 )
 
+@Serializable
 private data class UserProfile(
-    val fullName: String,
-    val gamerTag: String,
-    val email: String,
-    val region: String,
-    val platform: String,
-    val favoriteGames: List<String>,
+    @SerialName("nombre") val fullName: String,
+    @SerialName("gamertag") val gamerTag: String,
+    @SerialName("email") val email: String,
+    @SerialName("region") val region: String,
+    @SerialName("platform") val platform: String,
+    @SerialName("favorite_games") val favoriteGames: List<String>,
+    @SerialName("password_hash") val passwordHash: String
 )
 
 private enum class AuthMode {
@@ -162,20 +170,29 @@ private val sampleMessages = listOf(
     ChatMessage("Raptor", "Perfecto, dejen el codigo de sala fijado.", "20:18"),
 )
 
+// Inicialización del Cliente Global de Supabase Online
+private val supabaseClient = createSupabaseClient(
+    supabaseUrl = "https://aboyxrkcbqvhwcmeqfpz.supabase.co", // URL corregida de tu proyecto
+    supabaseKey = "sb_publishable_-MTyPcNhs5QRge3kjqACbg_0l9wixm3" // Clave Pública AnonIMA correcta de tu proyecto enviada por tu compa
+) {
+    install(Postgrest)
+}
+
 private val defaultProfile = UserProfile(
     fullName = "Invitado Gamer",
     gamerTag = "PlayerOne",
     email = "player@gamerrooms.app",
     region = "LATAM",
     platform = "PC",
-    favoriteGames = listOf("Valorant", "Fortnite")
+    favoriteGames = listOf("Valorant", "Fortnite"),
+    passwordHash = "123456"
 )
 
 private val discoverableFriends = listOf(
-    UserProfile("Camila Torres", "NyxCarry", "nyx@gamerrooms.app", "LATAM", "PC", listOf("Valorant", "League of Legends")),
-    UserProfile("Mateo Rios", "PixelMage", "pixel@gamerrooms.app", "LAN", "PlayStation", listOf("Destiny 2", "Fortnite")),
-    UserProfile("Sara Vega", "RaidQueen", "sara@gamerrooms.app", "NA/LATAM", "Xbox", listOf("Call of Duty", "Minecraft")),
-    UserProfile("Luis Moreno", "ZeroBuild", "zero@gamerrooms.app", "LATAM", "Nintendo", listOf("Fortnite", "Minecraft")),
+    UserProfile("Camila Torres", "NyxCarry", "nyx@gamerrooms.app", "LATAM", "PC", listOf("Valorant", "League of Legends"), "123456"),
+    UserProfile("Mateo Rios", "PixelMage", "pixel@gamerrooms.app", "LAN", "PlayStation", listOf("Destiny 2", "Fortnite"), "123456"),
+    UserProfile("Sara Vega", "RaidQueen", "sara@gamerrooms.app", "NA/LATAM", "Xbox", listOf("Call of Duty", "Minecraft"), "123456"),
+    UserProfile("Luis Moreno", "ZeroBuild", "zero@gamerrooms.app", "LATAM", "Nintendo", listOf("Fortnite", "Minecraft"), "123456"),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -728,10 +745,29 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
                         }
 
                         if (showError) {
+                            val errorMessage = when {
+                                !step1Valid -> "Faltan datos del Paso 1 (vuelve atrás y revisa)."
+                                !step2Valid -> "Falta elegir plataforma en Paso 2."
+                                totalSelectedGames.isEmpty() -> "Por favor, abre la ventana y escoge al menos un juego."
+                                else -> "Hubo un error de conexión con la base de datos de Supabase."
+                            }
                             Text(
-                                text = "Por favor, abre la ventana y escoge al menos un juego.",
+                                text = errorMessage,
                                 color = Color(0xFFFFB4AB),
                                 style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
+                        // Estado para controlar un mensaje de carga de base de datos
+                        var isSavingToDb by remember { mutableStateOf(false) }
+                        val coroutineScope = rememberCoroutineScope()
+
+                        if (isSavingToDb) {
+                            Text(
+                                text = "Guardando en Supabase Postgres...",
+                                color = Color(0xFF7CFFB2),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
@@ -740,24 +776,41 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             TextButton(
+                                enabled = !isSavingToDb,
                                 onClick = { currentStep = 2 },
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text("Atrás", color = Color.Gray)
                             }
                             Button(
+                                enabled = !isSavingToDb,
                                 onClick = {
                                     if (canSubmit) {
-                                        onRegister(
-                                            UserProfile(
-                                                fullName = fullName,
-                                                gamerTag = gamerTag,
-                                                email = email,
-                                                region = region,
-                                                platform = selectedPlatform,
-                                                favoriteGames = totalSelectedGames
-                                            )
-                                )
+                                        val newUser = UserProfile(
+                                            fullName = fullName,
+                                            gamerTag = gamerTag,
+                                            email = email,
+                                            region = region,
+                                            platform = selectedPlatform,
+                                            favoriteGames = totalSelectedGames,
+                                            passwordHash = password
+                                        )
+                                        
+                                        coroutineScope.launch {
+                                            try {
+                                                isSavingToDb = true
+                                                // GUARDADO DIRECTO ONLINE: Inserta el registro en la tabla SQL 'usuarios' usando la API Rest de tu Supabase
+                                                supabaseClient.from("usuarios").insert(newUser)
+                                                
+                                                // Si el insert fue exitoso, continúa al flujo principal de la app
+                                                onRegister(newUser)
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                                showError = true
+                                            } finally {
+                                                isSavingToDb = false
+                                            }
+                                        }
                                     } else {
                                         showError = true
                                     }
@@ -765,7 +818,7 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("Registrarme")
+                                Text(if (isSavingToDb) "Cargando..." else "Registrarme")
                             }
                         }
                     }
