@@ -3,6 +3,12 @@ package com.proyectoapp.gamerrooms
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -61,6 +67,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -228,7 +235,8 @@ private fun GamerRoomsApp() {
                         SearchBox(query = query, onQueryChange = { query = it })
                     }
                     itemsIndexed(filteredGroups) { index, group ->
-                        GroupCard(
+                        AnimatedGroupCard(
+                            index = index,
                             group = group,
                             isSelected = group == selectedGroup,
                             onJoin = { selectedGroup = group }
@@ -967,21 +975,39 @@ private fun FriendCard(profile: UserProfile, isFriend: Boolean, onAddFriend: () 
 private fun ProfileSection(profile: UserProfile, onLogout: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Mi perfil", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
-            border = BorderStroke(1.dp, Color(0xFF7CFFB2).copy(alpha = 0.18f)),
-            shape = RoundedCornerShape(8.dp)
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 320)) +
+                slideInVertically(
+                    animationSpec = tween(durationMillis = 320),
+                    initialOffsetY = { it / 4 }
+                )
         ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(profile.gamerTag, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text(profile.fullName, color = Color(0xFFD6E2DA))
-                ProfileRow("Correo", profile.email)
-                ProfileRow("Region", profile.region)
-                ProfileRow("Plataforma", profile.platform)
-                Text("Juegos de interes", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    profile.favoriteGames.take(3).forEach { game ->
-                        AssistChip(onClick = {}, label = { Text(game) })
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
+                border = BorderStroke(1.dp, borderColor),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(profile.gamerTag, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                    Text(profile.fullName, color = Color(0xFFD6E2DA))
+                    ProfileRow("Correo", profile.email)
+                    ProfileRow("Region", profile.region)
+                    ProfileRow("Plataforma", profile.platform)
+                    Text("Juegos de interes", fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        profile.favoriteGames.take(3).forEachIndexed { index, game ->
+                            AnimatedVisibility(
+                                visible = visible,
+                                enter = fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = index * 90)) +
+                                    slideInVertically(
+                                        animationSpec = tween(durationMillis = 220, delayMillis = index * 90),
+                                        initialOffsetY = { it / 2 }
+                                    )
+                            ) {
+                                AssistChip(onClick = {}, label = { Text(game) })
+                            }
+                        }
                     }
                 }
             }
@@ -1094,11 +1120,50 @@ private fun AdCard() {
 }
 
 @Composable
+private fun AnimatedGroupCard(index: Int, group: GamerGroup, isSelected: Boolean, onJoin: () -> Unit) {
+    var visible by remember(group.name) { mutableStateOf(false) }
+
+    LaunchedEffect(group.name) {
+        visible = true
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(durationMillis = 280, delayMillis = index * 70)) +
+            slideInVertically(
+                animationSpec = tween(durationMillis = 280, delayMillis = index * 70),
+                initialOffsetY = { it / 3 }
+            )
+    ) {
+        GroupCard(
+            group = group,
+            isSelected = isSelected,
+            onJoin = onJoin
+        )
+    }
+}
+
+@Composable
 private fun GroupCard(group: GamerGroup, isSelected: Boolean, onJoin: () -> Unit) {
-    val cardColor = if (isSelected) Color(0xFF1D2A24) else Color(0xFF181B21)
+    val cardColor by animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF1D2A24) else Color(0xFF181B21),
+        animationSpec = tween(durationMillis = 260),
+        label = "groupCardColor"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF7CFFB2).copy(alpha = 0.5f) else Color.Transparent,
+        animationSpec = tween(durationMillis = 260),
+        label = "groupBorderColor"
+    )
+    val iconSize by animateDpAsState(
+        targetValue = if (isSelected) 50.dp else 44.dp,
+        animationSpec = tween(durationMillis = 260),
+        label = "groupIconSize"
+    )
 
     Card(
         colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = BorderStroke(1.dp, borderColor),
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(
@@ -1107,7 +1172,7 @@ private fun GroupCard(group: GamerGroup, isSelected: Boolean, onJoin: () -> Unit
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(iconSize),
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFF25322D)
                 ) {
