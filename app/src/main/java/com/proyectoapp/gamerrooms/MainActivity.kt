@@ -4,6 +4,9 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
 import org.mindrot.jbcrypt.BCrypt
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -196,10 +199,11 @@ private val sampleGroups = listOf(
 
 // Inicialización del Cliente Global de Supabase Online
 private val supabaseClient = createSupabaseClient(
-    supabaseUrl = "https://aboyxrkcbqvhwcmeqfpz.supabase.co", // URL corregida de tu proyecto
-    supabaseKey = "sb_publishable_-MTyPcNhs5QRge3kjqACbg_0l9wixm3" // Clave Pública AnonIMA correcta de tu proyecto enviada por tu compa
+    supabaseUrl = "https://aboyxrkcbqvhwcmeqfpz.supabase.co", 
+    supabaseKey = "sb_publishable_-MTyPcNhs5QRge3kjqACbg_0l9wixm3" 
 ) {
     install(Postgrest)
+    install(Auth)
 }
 
 private val defaultProfile = UserProfile(
@@ -1329,10 +1333,18 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
                                         coroutineScope.launch {
                                             try {
                                                 isSavingToDb = true
-                                                // GUARDADO DIRECTO ONLINE: Inserta el registro en la tabla SQL 'usuarios' usando la API Rest de tu Supabase
+                                                
+                                                // 1. SUPABASE AUTH: Registrar en el servicio de autenticación para enviar correo
+                                                // Nota: Usamos la clave plana para Auth (Supabase la hashea internamente)
+                                                supabaseClient.auth.signUpWith(Email) {
+                                                    this.email = newUser.email
+                                                    this.password = password
+                                                }
+
+                                                // 2. SUPABASE POSTGRES: Guardar el perfil detallado en tu tabla custom
                                                 supabaseClient.from("usuarios").insert(newUser)
                                                 
-                                                // Si el insert fue exitoso, continúa al flujo principal de la app
+                                                // 3. Notificar éxito y aviso de correo
                                                 onRegister(newUser)
                                             } catch (e: Exception) {
                                                 e.printStackTrace()
