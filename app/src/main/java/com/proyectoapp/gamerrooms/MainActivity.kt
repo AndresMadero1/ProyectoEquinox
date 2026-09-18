@@ -219,13 +219,38 @@ private fun GamerRoomsApp() {
 
     var selectedSection by remember { mutableStateOf(MainSection.Groups) }
     var query by remember { mutableStateOf("") }
-    var selectedGroup by remember { mutableStateOf(sampleGroups.first()) }
-    val friends = remember { mutableStateListOf<UserProfile>() }
-    val filteredGroups = sampleGroups.filter {
+    
+    // Estado para controlar si mostramos solo recomendados o todos
+    var showAllGroups by remember { mutableStateOf(false) }
+    
+    val recommendedGroups = remember(myProfile) {
+        // Limpiamos los textos de las comillas y posibles llaves de Postgres que el backend pueda enviar
+        val cleanFavoriteGames = myProfile.favoriteGames.flatMap { item ->
+            // Si llega como un solo string con formato "{Valorant,"League of Legends"}" lo partimos, si no, solo limpiamos
+            item.removePrefix("{").removeSuffix("}")
+                .split(",")
+                .map { it.replace("\"", "").trim() }
+        }
+        
+        sampleGroups.filter { group ->
+            cleanFavoriteGames.any { interestedGame -> 
+                group.game.equals(interestedGame, ignoreCase = true) || 
+                group.game.contains(interestedGame, ignoreCase = true)
+            }
+        }
+    }
+
+    val displayGroups = if (showAllGroups) sampleGroups else recommendedGroups
+
+    val filteredGroups = displayGroups.filter {
         it.name.contains(query, ignoreCase = true) ||
             it.game.contains(query, ignoreCase = true) ||
             it.platform.contains(query, ignoreCase = true)
     }
+    
+    var selectedGroup by remember { mutableStateOf(if (filteredGroups.isNotEmpty()) filteredGroups.first() else sampleGroups.first()) }
+    val friends = remember { mutableStateListOf<UserProfile>() }
+
 
     val messagesPerGroup = remember {
         mutableStateMapOf<String, SnapshotStateList<ChatMessage>>().apply {
@@ -336,9 +361,67 @@ private fun GamerRoomsApp() {
                         item {
                             HeaderPanel()
                         }
+                        
+                        // Mensaje de recomendación o cabecera de exploración
                         item {
-                            SearchBox(query = query, onQueryChange = { query = it })
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!showAllGroups) {
+                                    Text(
+                                        text = "🎯 Recomendadas para ti",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF7CFFB2)
+                                    )
+                                    Text(
+                                        text = "Estas salas coinciden con tus juegos de interés.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.LightGray
+                                    )
+                                } else {
+                                    Text(
+                                        text = "🌐 Explorar todas las salas",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
                         }
+
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    SearchBox(query = query, onQueryChange = { query = it })
+                                }
+                                
+                                Button(
+                                    onClick = { showAllGroups = !showAllGroups },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (showAllGroups) Color(0xFF7CFFB2) else Color(0xFF242933),
+                                        contentColor = if (showAllGroups) Color.Black else Color.White
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Text(if (showAllGroups) "Ver Recomendados" else "Explorar Todo")
+                                }
+                            }
+                        }
+                        
+                        if (filteredGroups.isEmpty()) {
+                            item {
+                                Text(
+                                    "No se encontraron salas en esta sección.",
+                                    modifier = Modifier.padding(16.dp),
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+
                         itemsIndexed(filteredGroups) { index, group ->
                             AnimatedGroupCard(
                                 index = index,
