@@ -4,6 +4,7 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import org.mindrot.jbcrypt.BCrypt
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -107,6 +108,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -328,12 +332,12 @@ private fun GamerRoomsApp() {
 }
 
 @Composable
-private fun LoginScreen(onLogin: () -> Unit, onRegister: (UserProfile) -> Unit) {
+private fun LoginScreen(onLogin: (UserProfile) -> Unit, onRegister: (UserProfile) -> Unit) {
     var authMode by remember { mutableStateOf(AuthMode.Login) }
 
     when (authMode) {
         AuthMode.Login -> LoginForm(
-            onLogin = onLogin,
+            onLoginSuccess = onLogin,
             onCreateAccount = { authMode = AuthMode.Register }
         )
         AuthMode.Register -> RegisterForm(
@@ -344,7 +348,7 @@ private fun LoginScreen(onLogin: () -> Unit, onRegister: (UserProfile) -> Unit) 
 }
 
 @Composable
-private fun LoginForm(onLogin: () -> Unit, onCreateAccount: () -> Unit) {
+private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: () -> Unit) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
@@ -416,25 +420,95 @@ private fun LoginForm(onLogin: () -> Unit, onCreateAccount: () -> Unit) {
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
                     )
-                    if (showError) {
+                    // Estado local para animación de carga y mensajes de error específicos
+                    var loginErrorMessage by remember { mutableStateOf("") }
+                    var isLoggingIn by remember { mutableStateOf(false) }
+                    val coroutineScope = rememberCoroutineScope()
+
+                    if (loginErrorMessage.isNotBlank()) {
                         Text(
-                            text = "Completa tus datos para continuar.",
+                            text = loginErrorMessage,
                             color = Color(0xFFFFB4AB),
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
+
+                    if (isLoggingIn) {
+                        Text(
+                            text = "Validando credenciales en Postgres...",
+                            color = Color(0xFF7CFFB2),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
                     Button(
+                        enabled = !isLoggingIn,
                         onClick = {
                             if (canSubmit) {
-                                onLogin()
+                                coroutineScope.launch {
+                                    try {
+                                        isLoggingIn = true
+                                        loginErrorMessage = ""
+                                        
+                                        // CONSULTA DIRECTA Y HASHING EN EL CLIENTE
+                                        val users = supabaseClient.from("usuarios")
+                                            .select {
+                                                filter {
+                                                    ilike("email", email.trim())
+                                                }
+                                            }.decodeList<UserProfile>()
+                                        
+                                        if (users.isNotEmpty()) {
+                                            val matchedUser = users.first()
+                                            
+                                            // VALIDACIÓN LOCAL DEL HASH
+                                            val isPasswordCorrect = try {
+                                                BCrypt.checkpw(password, matchedUser.passwordHash)
+                                            } catch (e: Exception) {
+                                                false
+                                            }
+
+                                            if (isPasswordCorrect) {
+                                                // ACTUALIZACIÓN DE ÚLTIMO LOGIN
+                                                try {
+                                                    val currentTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
+                                                        .format(Date())
+                                                    
+                                                    supabaseClient.from("usuarios").update({
+                                                        set("ultimo_login", currentTimestamp)
+                                                    }) {
+                                                        filter {
+                                                            ilike("email", matchedUser.email)
+                                                        }
+                                                    }
+                                                } catch (dbEx: Exception) {
+                                                    dbEx.printStackTrace()
+                                                }
+
+                                                // Inicio de sesión exitoso
+                                                onLoginSuccess(matchedUser)
+                                            } else {
+                                                loginErrorMessage = "Contraseña incorrecta. Inténtalo de nuevo."
+                                            }
+                                        } else {
+                                            loginErrorMessage = "Credenciales incorrectas. Revisa tu correo."
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        loginErrorMessage = "Error de red o tabla: Verifica tu conexión a internet."
+                                    } finally {
+                                        isLoggingIn = false
+                                    }
+                                }
                             } else {
-                                showError = true
+                                loginErrorMessage = "Por favor, introduce tu correo y contraseña."
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("Entrar")
+                        Text(if (isLoggingIn) "Cargando..." else "Entrar")
                     }
                     Text(
                         text = "Registro con Cognito pendiente para la siguiente iteracion.",
@@ -789,7 +863,8 @@ private fun RegisterForm(onRegister: (UserProfile) -> Unit, onBackToLogin: () ->
                                             region = region,
                                             platform = selectedPlatform,
                                             favoriteGames = totalSelectedGames,
-                                            passwordHash = password
+                                            // APLICANDO HASH DE NUEVO: Encripta la contraseña usando BCrypt antes de mandarla a Supabase
+                                            passwordHash = BCrypt.hashpw(password, BCrypt.gensalt())
                                         )
                                         
                                         coroutineScope.launch {
