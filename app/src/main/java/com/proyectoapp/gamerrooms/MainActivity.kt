@@ -5,6 +5,10 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import org.mindrot.jbcrypt.BCrypt
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -291,14 +295,15 @@ private fun GamerRoomsApp() {
         }
     }
 
-    // Cargar relaciones de amistad (Solicitudes y Aceptadas)
+    // Cargar relaciones de amistad (Solicitudes y Aceptadas) con Polling para Notificaciones
     val amigoRelations = remember { mutableStateListOf<AmigoRelation>() }
     val pendingRequests = remember { mutableStateListOf<UserProfile>() }
+    val sentRequests = remember { mutableStateListOf<UserProfile>() }
     
-    LaunchedEffect(isLoggedIn, selectedSection) {
-        if (isLoggedIn && myProfile.id != null) {
+    LaunchedEffect(isLoggedIn) {
+        while (isLoggedIn && myProfile.id != null) {
             try {
-                // Traer TODAS las relaciones donde el usuario esté involucrado (como remitente o destinatario)
+                // Traer TODAS las relaciones donde el usuario esté involucrado
                 val allRels = supabaseClient.from("amigos")
                     .select {
                         filter {
@@ -312,11 +317,10 @@ private fun GamerRoomsApp() {
                 amigoRelations.clear()
                 amigoRelations.addAll(allRels)
 
-                // Cargar lista completa de usuarios para resolver perfiles
                 val allUsers = supabaseClient.from("usuarios").select().decodeList<UserProfile>()
                 
-                // Mis amigos (aceptados)
-                val myConfirmedFriends = allUsers.filter { u -> 
+                // 1. Amigos confirmados
+                val confirmed = allUsers.filter { u -> 
                     allRels.any { r -> 
                         r.estado == "ACEPTADA" && (
                             (r.usuarioId == myProfile.id && r.amigoId == u.id) || 
@@ -325,18 +329,26 @@ private fun GamerRoomsApp() {
                     }
                 }
                 friends.clear()
-                friends.addAll(myConfirmedFriends)
+                friends.addAll(confirmed)
                 
-                // Solicitudes pendientes ENTRANTES (yo soy amigo_id)
-                val myPending = allUsers.filter { u -> 
+                // 2. Solicitudes Recibidas (yo soy amigo_id)
+                val received = allUsers.filter { u -> 
                     allRels.any { r -> r.estado == "PENDIENTE" && r.amigoId == myProfile.id && r.usuarioId == u.id }
                 }
                 pendingRequests.clear()
-                pendingRequests.addAll(myPending)
+                pendingRequests.addAll(received)
+
+                // 3. Solicitudes Enviadas (yo soy usuario_id)
+                val sent = allUsers.filter { u -> 
+                    allRels.any { r -> r.estado == "PENDIENTE" && r.usuarioId == myProfile.id && r.amigoId == u.id }
+                }
+                sentRequests.clear()
+                sentRequests.addAll(sent)
                 
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+            kotlinx.coroutines.delay(4000) // Polling cada 4 segundos (Notificaciones)
         }
     }
 
@@ -409,192 +421,186 @@ private fun GamerRoomsApp() {
             },
             containerColor = Color(0xFF101216)
         ) { padding ->
-            LazyColumn(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(padding)
             ) {
+                val isTablet = this.maxWidth > 800.dp
 
                 when (selectedSection) {
                     MainSection.Groups -> {
-                        item {
-                            HeaderPanel()
-                        }
-                        
-                        // Mensaje de recomendación o cabecera de exploración
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (!showAllGroups) {
-                                    Text(
-                                        text = "🎯 Recomendadas para ti",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF7CFFB2)
-                                    )
-                                    Text(
-                                        text = "Estas salas coinciden con tus juegos de interés.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.LightGray
-                                    )
-                                } else {
-                                    Text(
-                                        text = "🌐 Explorar todas las salas",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        }
-
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(modifier = Modifier.weight(1f)) {
-                                    SearchBox(query = query, onQueryChange = { query = it })
-                                }
-                                
-                                Button(
-                                    onClick = { showAllGroups = !showAllGroups },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (showAllGroups) Color(0xFF7CFFB2) else Color(0xFF242933),
-                                        contentColor = if (showAllGroups) Color.Black else Color.White
-                                    ),
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        if (isTablet) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                // PANEL IZQUIERDO: Exploración (35%)
+                                LazyColumn(
+                                    modifier = Modifier.weight(0.35f).fillMaxHeight(),
+                                    contentPadding = PaddingValues(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    Text(if (showAllGroups) "Ver Recomendados" else "Explorar Todo")
-                                }
-                            }
-                        }
-                        
-                        if (filteredGroups.isEmpty()) {
-                            item {
-                                Text(
-                                    "No se encontraron salas en esta sección.",
-                                    modifier = Modifier.padding(16.dp),
-                                    color = Color.Gray
-                                )
-                            }
-                        }
-
-                        itemsIndexed(filteredGroups) { index, group ->
-                            AnimatedGroupCard(
-                                index = index,
-                                group = group,
-                                isSelected = group == selectedGroup,
-                                onJoin = { selectedGroup = group }
-                            )
-                            // Insertamos publicidad después del segundo elemento (índice 1)
-                            if (index == 1 && filteredGroups.size > 1) {
-                                Spacer(Modifier.height(16.dp))
-                                AdCard()
-                            }
-                        }
-                        item {
-                            ChatRoom(
-                                group = selectedGroup,
-                                messages = currentMessages,
-                                onSendMessage = { text ->
-                                    val newMsg = ChatMessage(
-                                        grupo = selectedGroup.name,
-                                        author = myProfile.gamerTag,
-                                        text = text,
-                                        time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-                                    )
-                                    scope.launch {
-                                        try {
-                                            supabaseClient.from("mensajes").insert(newMsg)
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
+                                    item { HeaderPanel() }
+                                    item {
+                                        SearchBox(query = query, onQueryChange = { query = it })
+                                        Spacer(Modifier.height(8.dp))
+                                        Button(
+                                            onClick = { showAllGroups = !showAllGroups },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if(showAllGroups) Color(0xFF7CFFB2) else Color(0xFF242933))
+                                        ) {
+                                            Text(if(showAllGroups) "Ver Recomendados" else "Explorar Todo")
+                                        }
+                                    }
+                                    itemsIndexed(filteredGroups) { index, group ->
+                                        AnimatedGroupCard(
+                                            index = index,
+                                            group = group,
+                                            isSelected = group == selectedGroup,
+                                            onJoin = { selectedGroup = group }
+                                        )
+                                        if (index == 1) {
+                                            Spacer(Modifier.height(16.dp))
+                                            AdCard()
                                         }
                                     }
                                 }
-                            )
+                                // PANEL DERECHO: Chat en Vivo (65%)
+                                Box(modifier = Modifier.weight(0.65f).fillMaxHeight().padding(16.dp)) {
+                                    ChatRoom(
+                                        group = selectedGroup,
+                                        messages = currentMessages,
+                                        onSendMessage = { text ->
+                                            val newMsg = ChatMessage(
+                                                grupo = selectedGroup.name,
+                                                author = myProfile.gamerTag,
+                                                text = text,
+                                                time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                                            )
+                                            scope.launch {
+                                                try { supabaseClient.from("mensajes").insert(newMsg) }
+                                                catch (e: Exception) { e.printStackTrace() }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            // MÓVIL: Flujo Vertical
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                item { HeaderPanel() }
+                                item { SearchBox(query = query, onQueryChange = { query = it }) }
+                                itemsIndexed(filteredGroups) { index, group ->
+                                    AnimatedGroupCard(index = index, group = group, isSelected = group == selectedGroup, onJoin = { selectedGroup = group })
+                                }
+                                item {
+                                    ChatRoom(
+                                        group = selectedGroup,
+                                        messages = currentMessages,
+                                        onSendMessage = { text ->
+                                            val newMsg = ChatMessage(grupo = selectedGroup.name, author = myProfile.gamerTag, text = text, time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()))
+                                            scope.launch { try { supabaseClient.from("mensajes").insert(newMsg) } catch (e: Exception) { e.printStackTrace() } }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                     MainSection.Friends -> {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                if (pendingRequests.isNotEmpty()) {
-                                    Text("🔔 Solicitudes Pendientes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF7CFFB2))
-                                    pendingRequests.forEach { reqUser ->
-                                        Card(
-                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF20242C)),
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(reqUser.gamerTag, fontWeight = FontWeight.Bold, color = Color.White)
-                                                    Text(reqUser.fullName, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
-                                                }
-                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    Button(
-                                                        onClick = {
-                                                            scope.launch {
-                                                                try {
-                                                                    supabaseClient.from("amigos").update({
-                                                                        set("estado", "ACEPTADA")
-                                                                    }) {
-                                                                        filter {
-                                                                            eq("usuario_id", reqUser.id!!)
-                                                                            eq("amigo_id", myProfile.id!!)
-                                                                        }
-                                                                    }
-                                                                    pendingRequests.remove(reqUser)
-                                                                    if (friends.none { it.id == reqUser.id }) friends.add(reqUser)
-                                                                } catch (e: Exception) { e.printStackTrace() }
-                                                            }
-                                                        },
-                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E3528)),
-                                                        shape = RoundedCornerShape(6.dp)
-                                                    ) {
-                                                        Text("Aceptar", color = Color(0xFF7CFFB2), fontWeight = FontWeight.Bold)
-                                                    }
-                                                    Button(
-                                                        onClick = {
-                                                            scope.launch {
-                                                                try {
-                                                                    supabaseClient.from("amigos").delete {
-                                                                        filter {
-                                                                            eq("usuario_id", reqUser.id!!)
-                                                                            eq("amigo_id", myProfile.id!!)
-                                                                        }
-                                                                    }
-                                                                    pendingRequests.remove(reqUser)
-                                                                } catch (e: Exception) { e.printStackTrace() }
-                                                            }
-                                                        },
-                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A1C1C)),
-                                                        shape = RoundedCornerShape(6.dp)
-                                                    ) {
-                                                        Text("Rechazar", color = Color(0xFFFFB4AB), fontWeight = FontWeight.Bold)
-                                                    }
-                                                }
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // 1. SOLICITUDES RECIBIDAS (ENTRANTES)
+                            if (pendingRequests.isNotEmpty()) {
+                                item {
+                                    Text("📥 Solicitudes Recibidas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF7CFFB2))
+                                }
+                                items(pendingRequests.toList()) { reqUser ->
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2228)),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF7CFFB2).copy(alpha = 0.3f))
+                                    ) {
+                                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(reqUser.gamerTag, fontWeight = FontWeight.Bold, color = Color.White)
+                                                Text("Quiere ser tu amigo", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                                            }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            try {
+                                                                supabaseClient.from("amigos").update({ set("estado", "ACEPTADA") }) {
+                                                                    filter { eq("usuario_id", reqUser.id!!); eq("amigo_id", myProfile.id!!) }
+                                                                }
+                                                                pendingRequests.removeIf { it.id == reqUser.id }
+                                                            } catch (e: Exception) { e.printStackTrace() }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) { Text("Aceptar") }
+                                                Button(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            try {
+                                                                supabaseClient.from("amigos").delete {
+                                                                    filter { eq("usuario_id", reqUser.id!!); eq("amigo_id", myProfile.id!!) }
+                                                                }
+                                                                pendingRequests.removeIf { it.id == reqUser.id }
+                                                            } catch (e: Exception) { e.printStackTrace() }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) { Text("Rechazar") }
                                             }
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(12.dp))
                                 }
+                            }
 
+                            // 2. SOLICITUDES ENVIADAS (SALIENTES)
+                            if (sentRequests.isNotEmpty()) {
+                                item {
+                                    Text("📤 Solicitudes Enviadas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                                items(sentRequests.toList()) { sentUser ->
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF16191D)),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(sentUser.gamerTag, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
+                                            AssistChip(onClick = {}, label = { Text("Pendiente...") }, colors = androidx.compose.material3.AssistChipDefaults.assistChipColors(labelColor = Color.Gray))
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. BUSCADOR Y LISTA DE AMIGOS
+                            item {
                                 FriendsSection(
                                     friends = friends,
+                                    amigoRelations = amigoRelations,
+                                    myProfileId = myProfile.id,
                                     onAddFriend = { friend ->
                                         if (myProfile.id != null && friend.id != null) {
                                             scope.launch {
                                                 try {
                                                     val rel = AmigoRelation(usuarioId = myProfile.id!!, amigoId = friend.id!!, estado = "PENDIENTE")
                                                     supabaseClient.from("amigos").insert(rel)
-                                                    // No se agrega directo a amigos confirmados, queda en espera de que el otro acepte
-                                                } catch (e: Exception) {
-                                                    e.printStackTrace()
-                                                }
+                                                    // Actualizar localmente para feedback inmediato
+                                                    amigoRelations.add(rel)
+                                                    sentRequests.add(friend)
+                                                } catch (e: Exception) { e.printStackTrace() }
                                             }
                                         }
                                     }
@@ -603,63 +609,82 @@ private fun GamerRoomsApp() {
                         }
                     }
                     MainSection.Chats -> {
-                        item {
-                            Text("Direct Messages", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                        if (friends.isEmpty()) {
-                            item {
-                                Text("Acepta solicitudes o agrega amigos para iniciar un chat privado.", color = Color.Gray, modifier = Modifier.padding(16.dp))
-                            }
-                        } else {
-                            item {
-                                Text("Elige un amigo para chatear:", style = MaterialTheme.typography.titleMedium, color = Color(0xFF7CFFB2))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    friends.forEach { f ->
+                        if (isTablet) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                // Panel Izquierdo: Lista de Amigos
+                                LazyColumn(modifier = Modifier.weight(0.3f).fillMaxHeight().padding(16.dp)) {
+                                    item { Text("Tus Chats", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+                                    items(friends.toList()) { f ->
                                         val isSel = selectedFriendChat?.id == f.id
                                         Card(
                                             colors = CardDefaults.cardColors(containerColor = if (isSel) Color(0xFF1E3528) else Color(0xFF181B21)),
-                                            border = BorderStroke(1.dp, if (isSel) Color(0xFF7CFFB2) else Color.Transparent),
-                                            modifier = Modifier.clickable { selectedFriendChat = f }.padding(4.dp)
+                                            modifier = Modifier.fillMaxWidth().clickable { selectedFriendChat = f }.padding(vertical = 4.dp)
                                         ) {
-                                            Text(f.gamerTag, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Bold, color = if (isSel) Color(0xFF7CFFB2) else Color.White)
+                                            Text(f.gamerTag, modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Bold, color = if (isSel) Color(0xFF7CFFB2) else Color.White)
                                         }
                                     }
                                 }
+                                // Panel Derecho: Conversación
+                                Box(modifier = Modifier.weight(0.7f).fillMaxHeight().padding(16.dp)) {
+                                    if (selectedFriendChat != null) {
+                                        val myId = myProfile.id ?: 0
+                                        val friendId = selectedFriendChat?.id ?: 0
+                                        val dmId = if (myId < friendId) "DM:${myId}_$friendId" else "DM:${friendId}_$myId"
+                                        ChatRoom(
+                                            group = GamerGroup(selectedFriendChat!!.gamerTag, "Privado", "", "", 2, "En línea", emptyList()),
+                                            messages = directMessages,
+                                            onSendMessage = { t ->
+                                                val dmMsg = ChatMessage(grupo = dmId, author = myProfile.gamerTag, text = t, time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()))
+                                                scope.launch { try { supabaseClient.from("mensajes").insert(dmMsg); directMessages.add(dmMsg) } catch (e: Exception) { e.printStackTrace() } }
+                                            }
+                                        )
+                                    } else {
+                                        Text("Selecciona un amigo para chatear", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                                    }
+                                }
                             }
-                            if (selectedFriendChat != null) {
-                                item {
-                                    val myId = myProfile.id ?: 0
-                                    val friendId = selectedFriendChat?.id ?: 0
-                                    val dmId = if (myId < friendId) "DM:${myId}_$friendId" else "DM:${friendId}_$myId"
-                                    
-                                    ChatRoom(
-                                        group = GamerGroup(selectedFriendChat!!.gamerTag, "Mensajes Privados", "", "", 2, "Online", emptyList()),
-                                        messages = directMessages,
-                                        onSendMessage = { t ->
-                                            val dmMsg = ChatMessage(
-                                                grupo = dmId,
-                                                author = myProfile.gamerTag,
-                                                text = t,
-                                                time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-                                            )
-                                            scope.launch {
-                                                try {
-                                                    supabaseClient.from("mensajes").insert(dmMsg)
-                                                    directMessages.add(dmMsg)
-                                                } catch (e: Exception) { e.printStackTrace() }
+                        } else {
+                            // MÓVIL
+                            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item { Text("Chats Privados", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+                                if (friends.isEmpty()) {
+                                    item { Text("No tienes amigos aceptados aún.", color = Color.Gray) }
+                                } else {
+                                    item {
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(friends.toList()) { f ->
+                                                val isSel = selectedFriendChat?.id == f.id
+                                                Card(
+                                                    colors = CardDefaults.cardColors(containerColor = if (isSel) Color(0xFF1E3528) else Color(0xFF181B21)),
+                                                    modifier = Modifier.clickable { selectedFriendChat = f }.padding(4.dp)
+                                                ) {
+                                                    Text(f.gamerTag, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Bold, color = if (isSel) Color(0xFF7CFFB2) else Color.White)
+                                                }
                                             }
                                         }
-                                    )
+                                    }
+                                    if (selectedFriendChat != null) {
+                                        item {
+                                            val myId = myProfile.id ?: 0
+                                            val friendId = selectedFriendChat?.id ?: 0
+                                            val dmId = if (myId < friendId) "DM:${myId}_$friendId" else "DM:${friendId}_$myId"
+                                            ChatRoom(
+                                                group = GamerGroup(selectedFriendChat!!.gamerTag, "Privado", "", "", 2, "En línea", emptyList()),
+                                                messages = directMessages,
+                                                onSendMessage = { t ->
+                                                    val dmMsg = ChatMessage(grupo = dmId, author = myProfile.gamerTag, text = t, time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()))
+                                                    scope.launch { try { supabaseClient.from("mensajes").insert(dmMsg); directMessages.add(dmMsg) } catch (e: Exception) { e.printStackTrace() } }
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                     MainSection.Profile -> {
-                        item {
-                            ProfileSection(profile = myProfile, onLogout = { isLoggedIn = false })
+                        LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            item { ProfileSection(profile = myProfile, onLogout = { isLoggedIn = false }) }
                         }
                     }
                 }
@@ -1675,7 +1700,12 @@ private fun DrawerDestination(
 }
 
 @Composable
-private fun FriendsSection(friends: List<UserProfile>, onAddFriend: (UserProfile) -> Unit) {
+private fun FriendsSection(
+    friends: List<UserProfile>,
+    amigoRelations: List<AmigoRelation>,
+    myProfileId: Int?,
+    onAddFriend: (UserProfile) -> Unit
+) {
     var friendQuery by remember { mutableStateOf("") }
     val results = remember { mutableStateListOf<UserProfile>() }
     var isLoading by remember { mutableStateOf(false) }
@@ -1686,20 +1716,15 @@ private fun FriendsSection(friends: List<UserProfile>, onAddFriend: (UserProfile
             return@LaunchedEffect
         }
         
-        // Debounce de 500ms para no saturar Supabase Postgres
         kotlinx.coroutines.delay(500)
         try {
             isLoading = true
-            // Traemos todos los usuarios reales registrados online
             val allUsers = supabaseClient.from("usuarios").select().decodeList<UserProfile>()
-            
-            // Filtramos localmente por gamertag, nombre completo o juegos favoritos
             val filtered = allUsers.filter { user: UserProfile ->
                 user.gamerTag.contains(friendQuery, ignoreCase = true) ||
                 user.fullName.contains(friendQuery, ignoreCase = true) ||
                 user.favoriteGames.any { it.contains(friendQuery, ignoreCase = true) }
             }
-            
             results.clear()
             results.addAll(filtered)
         } catch (e: Exception) {
@@ -1710,33 +1735,36 @@ private fun FriendsSection(friends: List<UserProfile>, onAddFriend: (UserProfile
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Amigos", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("Buscar nuevos guerreros", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         OutlinedTextField(
             value = friendQuery,
             onValueChange = { friendQuery = it },
             modifier = Modifier.fillMaxWidth(),
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            label = { Text("Buscar por gamertag o juego en BD") },
+            label = { Text("Gamertag o juego") },
             singleLine = true
         )
         
-        Text("Resultados Online", fontWeight = FontWeight.SemiBold)
-        
         if (isLoading) {
-            Text(
-                text = "Buscando guerreros en la base de datos Supabase...",
-                color = Color(0xFF7CFFB2),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        } else if (results.isEmpty() && friendQuery.isNotBlank()) {
-            Text("No se encontraron usuarios registrados con ese criterio.", color = Color.Gray)
-        } else {
+            Text("Buscando...", color = Color(0xFF7CFFB2), fontWeight = FontWeight.Bold)
+        } else if (results.isNotEmpty()) {
+            Text("Resultados", fontWeight = FontWeight.SemiBold)
             results.forEach { friend ->
+                // Determinar estado de la relación
+                val rel = amigoRelations.find { 
+                    (it.usuarioId == myProfileId && it.amigoId == friend.id) || 
+                    (it.amigoId == myProfileId && it.usuarioId == friend.id)
+                }
+                val status = when {
+                    rel == null -> "NONE"
+                    rel.estado == "ACEPTADA" -> "FRIEND"
+                    rel.usuarioId == myProfileId -> "SENT"
+                    else -> "RECEIVED"
+                }
+
                 FriendCard(
                     profile = friend,
-                    isFriend = friends.any { it.gamerTag == friend.gamerTag },
+                    status = status,
                     onAddFriend = { onAddFriend(friend) }
                 )
             }
@@ -1744,20 +1772,21 @@ private fun FriendsSection(friends: List<UserProfile>, onAddFriend: (UserProfile
         
         Text("Mis amigos", fontWeight = FontWeight.SemiBold)
         if (friends.isEmpty()) {
-            Text("Aun no has agregado amigos.", color = Color(0xFFAEB8B1))
+            Text("Aun no has agregado amigos.", color = Color.Gray)
         } else {
             friends.forEach { friend ->
-                FriendCard(profile = friend, isFriend = true, onAddFriend = {})
+                FriendCard(profile = friend, status = "FRIEND", onAddFriend = {})
             }
         }
     }
 }
 
 @Composable
-private fun FriendCard(profile: UserProfile, isFriend: Boolean, onAddFriend: () -> Unit) {
+private fun FriendCard(profile: UserProfile, status: String, onAddFriend: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.padding(vertical = 4.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1773,21 +1802,31 @@ private fun FriendCard(profile: UserProfile, isFriend: Boolean, onAddFriend: () 
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(profile.gamerTag, fontWeight = FontWeight.Bold)
-                    Text("${profile.fullName} - ${profile.platform} - ${profile.region}", color = Color(0xFFAEB8B1))
+                    Text("${profile.platform} - ${profile.region}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                profile.favoriteGames.take(3).forEach { game ->
-                    AssistChip(onClick = {}, label = { Text(game) })
-                }
-            }
+            
             Button(
                 onClick = onAddFriend,
-                enabled = !isFriend,
+                enabled = status == "NONE",
                 modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when(status) {
+                        "FRIEND" -> Color(0xFF1B3D2F)
+                        "SENT" -> Color(0xFF242933)
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                ),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text(if (isFriend) "Agregado" else "Agregar amigo")
+                Text(
+                    text = when(status) {
+                        "FRIEND" -> "Ya son amigos"
+                        "SENT" -> "Solicitud Enviada"
+                        "RECEIVED" -> "Ver Solicitud"
+                        else -> "Agregar amigo"
+                    }
+                )
             }
         }
     }
