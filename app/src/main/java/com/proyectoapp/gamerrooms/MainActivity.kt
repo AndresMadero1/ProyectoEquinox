@@ -9,6 +9,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.os.Build
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.material.icons.filled.OpenInNew
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -136,7 +144,7 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-private data class GamerGroup(
+data class GamerGroup(
     val name: String,
     val game: String,
     val platform: String,
@@ -147,7 +155,7 @@ private data class GamerGroup(
 )
 
 @Serializable
-private data class ChatMessage(
+data class ChatMessage(
     @SerialName("grupo") val grupo: String,
     @SerialName("autor") val author: String,
     @SerialName("texto") val text: String,
@@ -156,7 +164,7 @@ private data class ChatMessage(
 )
 
 @Serializable
-private data class UserProfile(
+data class UserProfile(
     @SerialName("nombre") val fullName: String,
     @SerialName("gamertag") val gamerTag: String,
     @SerialName("email") val email: String,
@@ -168,7 +176,7 @@ private data class UserProfile(
 )
 
 @Serializable
-private data class AmigoRelation(
+data class AmigoRelation(
     @SerialName("usuario_id") val usuarioId: Int,
     @SerialName("amigo_id") val amigoId: Int,
     @SerialName("estado") val estado: String = "PENDIENTE",
@@ -234,7 +242,81 @@ private fun GamerRoomsApp() {
 
     var selectedSection by remember { mutableStateOf(MainSection.Groups) }
     var query by remember { mutableStateOf("") }
+    val friends = remember { mutableStateListOf<UserProfile>() }
+    val scope = rememberCoroutineScope()
     
+    // Estados para Gestión de Amigos
+    var profileToShow by remember { mutableStateOf<UserProfile?>(null) }
+    var friendToDelete by remember { mutableStateOf<UserProfile?>(null) }
+
+    // Diálogo de Perfil de Amigo
+    if (profileToShow != null) {
+        AlertDialog(
+            onDismissRequest = { profileToShow = null },
+            title = { 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color(0xFF7CFFB2), modifier = Modifier.size(32.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(profileToShow!!.gamerTag, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Nombre: ${profileToShow!!.fullName}", color = Color.White)
+                    Text("Región: ${profileToShow!!.region}", color = Color.LightGray)
+                    Text("Plataforma: ${profileToShow!!.platform}", color = Color.LightGray)
+                    Text("Juegos favoritos:", fontWeight = FontWeight.Bold, color = Color(0xFF7CFFB2))
+                    profileToShow!!.favoriteGames.forEach { game ->
+                        Text("• $game", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { profileToShow = null }) { Text("Cerrar") }
+            },
+            containerColor = Color(0xFF181B21),
+            titleContentColor = Color.White,
+            textContentColor = Color.White
+        )
+    }
+
+    // Diálogo de Confirmación de Borrado
+    if (friendToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { friendToDelete = null },
+            title = { Text("Eliminar Amigo") },
+            text = { Text("¿Estás seguro de que deseas eliminar a ${friendToDelete!!.gamerTag}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = friendToDelete!!
+                        scope.launch {
+                            try {
+                                supabaseClient.from("amigos").delete {
+                                    filter {
+                                        or {
+                                            and { eq("usuario_id", myProfile.id!!); eq("amigo_id", target.id!!) }
+                                            and { eq("amigo_id", myProfile.id!!); eq("usuario_id", target.id!!) }
+                                        }
+                                    }
+                                }
+                                friends.removeIf { it.id == target.id }
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                        friendToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                ) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { friendToDelete = null }) { Text("Cancelar") }
+            },
+            containerColor = Color(0xFF181B21),
+            titleContentColor = Color.White,
+            textContentColor = Color.White
+        )
+    }
+
     // Estado para controlar si mostramos solo recomendados o todos
     var showAllGroups by remember { mutableStateOf(false) }
     
@@ -264,7 +346,6 @@ private fun GamerRoomsApp() {
     }
     
     var selectedGroup by remember { mutableStateOf(if (filteredGroups.isNotEmpty()) filteredGroups.first() else sampleGroups.first()) }
-    val friends = remember { mutableStateListOf<UserProfile>() }
 
 
     val messagesPerGroup = remember {
@@ -279,7 +360,36 @@ private fun GamerRoomsApp() {
         mutableStateListOf<ChatMessage>().also { messagesPerGroup[selectedGroup.name] = it }
     }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Launcher para Permiso de Notificaciones (Android 13+)
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            // Podríamos mostrar un mensaje al usuario, pero por ahora solo logueamos
+        }
+    }
+
+    // Inicializar Canal de Notificaciones y Pedir Permisos
+    LaunchedEffect(Unit) {
+        NotificationHelper.createChannel(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // Detectar si la app está en primer plano
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isAppInForeground by remember { mutableStateOf(true) }
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) isAppInForeground = true
+            else if (event == Lifecycle.Event.ON_PAUSE) isAppInForeground = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Polling de mensajes cada 3 segundos en la sala activa
     LaunchedEffect(selectedGroup) {
@@ -319,6 +429,8 @@ private fun GamerRoomsApp() {
                         }
                     }.decodeList<AmigoRelation>()
                 
+                val currentReceivedCount = pendingRequests.size
+                
                 amigoRelations.clear()
                 amigoRelations.addAll(allRels)
 
@@ -340,6 +452,11 @@ private fun GamerRoomsApp() {
                 val received = allUsers.filter { u -> 
                     allRels.any { r -> r.estado == "PENDIENTE" && r.amigoId == myProfile.id && r.usuarioId == u.id }
                 }
+                
+                if (received.size > currentReceivedCount && !isAppInForeground) {
+                    NotificationHelper.showChatBubble(context, received.last(), "¡Te ha enviado una solicitud de amistad!", myProfile.id ?: 0, myProfile.gamerTag)
+                }
+
                 pendingRequests.clear()
                 pendingRequests.addAll(received)
 
@@ -374,6 +491,11 @@ private fun GamerRoomsApp() {
                         .select {
                             filter { eq("grupo", dmId) }
                         }.decodeList<ChatMessage>()
+                    
+                    if (dbMessages.size > directMessages.size && !isAppInForeground) {
+                        NotificationHelper.showChatBubble(context, selectedFriendChat!!, dbMessages.last().text, myProfile.id ?: 0, myProfile.gamerTag)
+                    }
+
                     directMessages.clear()
                     directMessages.addAll(dbMessages)
                 } catch (e: Exception) {
@@ -484,6 +606,11 @@ private fun GamerRoomsApp() {
                                                 try { supabaseClient.from("mensajes").insert(newMsg) }
                                                 catch (e: Exception) { e.printStackTrace() }
                                             }
+                                        },
+                                        onOpenBubble = {
+                                            // En grupos, usamos un ID ficticio o basado en el hash del nombre
+                                            val pseudoFriend = UserProfile("", selectedGroup.name, "", "", "", emptyList(), "", selectedGroup.name.hashCode())
+                                            NotificationHelper.showChatBubble(context, pseudoFriend, "Chat de grupo", myProfile.id ?: 0, myProfile.gamerTag)
                                         }
                                     )
                                 }
@@ -507,6 +634,10 @@ private fun GamerRoomsApp() {
                                         onSendMessage = { text ->
                                             val newMsg = ChatMessage(grupo = selectedGroup.name, author = myProfile.gamerTag, text = text, time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()))
                                             scope.launch { try { supabaseClient.from("mensajes").insert(newMsg) } catch (e: Exception) { e.printStackTrace() } }
+                                        },
+                                        onOpenBubble = {
+                                            val pseudoFriend = UserProfile("", selectedGroup.name, "", "", "", emptyList(), "", selectedGroup.name.hashCode())
+                                            NotificationHelper.showChatBubble(context, pseudoFriend, "Chat de grupo", myProfile.id ?: 0, myProfile.gamerTag)
                                         }
                                     )
                                 }
@@ -608,7 +739,9 @@ private fun GamerRoomsApp() {
                                                 } catch (e: Exception) { e.printStackTrace() }
                                             }
                                         }
-                                    }
+                                    },
+                                    onViewProfile = { profileToShow = it },
+                                    onDeleteFriend = { friendToDelete = it }
                                 )
                             }
                         }
@@ -641,6 +774,9 @@ private fun GamerRoomsApp() {
                                             onSendMessage = { t ->
                                                 val dmMsg = ChatMessage(grupo = dmId, author = myProfile.gamerTag, text = t, time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()))
                                                 scope.launch { try { supabaseClient.from("mensajes").insert(dmMsg); directMessages.add(dmMsg) } catch (e: Exception) { e.printStackTrace() } }
+                                            },
+                                            onOpenBubble = {
+                                                NotificationHelper.showChatBubble(context, selectedFriendChat!!, "Abriendo chat...", myProfile.id ?: 0, myProfile.gamerTag)
                                             }
                                         )
                                     } else {
@@ -679,6 +815,9 @@ private fun GamerRoomsApp() {
                                                 onSendMessage = { t ->
                                                     val dmMsg = ChatMessage(grupo = dmId, author = myProfile.gamerTag, text = t, time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()))
                                                     scope.launch { try { supabaseClient.from("mensajes").insert(dmMsg); directMessages.add(dmMsg) } catch (e: Exception) { e.printStackTrace() } }
+                                                },
+                                                onOpenBubble = {
+                                                    NotificationHelper.showChatBubble(context, selectedFriendChat!!, "Abriendo chat...", myProfile.id ?: 0, myProfile.gamerTag)
                                                 }
                                             )
                                         }
@@ -1760,7 +1899,9 @@ private fun FriendsSection(
     friends: List<UserProfile>,
     amigoRelations: List<AmigoRelation>,
     myProfileId: Int?,
-    onAddFriend: (UserProfile) -> Unit
+    onAddFriend: (UserProfile) -> Unit,
+    onViewProfile: (UserProfile) -> Unit,
+    onDeleteFriend: (UserProfile) -> Unit
 ) {
     var friendQuery by remember { mutableStateOf("") }
     val results = remember { mutableStateListOf<UserProfile>() }
@@ -1821,7 +1962,9 @@ private fun FriendsSection(
                 FriendCard(
                     profile = friend,
                     status = status,
-                    onAddFriend = { onAddFriend(friend) }
+                    onAddFriend = { onAddFriend(friend) },
+                    onViewProfile = { onViewProfile(friend) },
+                    onDeleteFriend = { onDeleteFriend(friend) }
                 )
             }
         }
@@ -1831,14 +1974,26 @@ private fun FriendsSection(
             Text("Aun no has agregado amigos.", color = Color.Gray)
         } else {
             friends.forEach { friend ->
-                FriendCard(profile = friend, status = "FRIEND", onAddFriend = {})
+                FriendCard(
+                    profile = friend, 
+                    status = "FRIEND", 
+                    onAddFriend = {},
+                    onViewProfile = { onViewProfile(friend) },
+                    onDeleteFriend = { onDeleteFriend(friend) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun FriendCard(profile: UserProfile, status: String, onAddFriend: () -> Unit) {
+private fun FriendCard(
+    profile: UserProfile, 
+    status: String, 
+    onAddFriend: () -> Unit,
+    onViewProfile: () -> Unit = {},
+    onDeleteFriend: () -> Unit = {}
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
         shape = RoundedCornerShape(8.dp),
@@ -1862,27 +2017,46 @@ private fun FriendCard(profile: UserProfile, status: String, onAddFriend: () -> 
                 }
             }
             
-            Button(
-                onClick = onAddFriend,
-                enabled = status == "NONE",
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = when(status) {
-                        "FRIEND" -> Color(0xFF1B3D2F)
-                        "SENT" -> Color(0xFF242933)
-                        else -> MaterialTheme.colorScheme.primary
+            if (status == "FRIEND") {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onViewProfile,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25322D)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Perfil")
                     }
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = when(status) {
-                        "FRIEND" -> "Ya son amigos"
-                        "SENT" -> "Solicitud Enviada"
-                        "RECEIVED" -> "Ver Solicitud"
-                        else -> "Agregar amigo"
+                    Button(
+                        onClick = onDeleteFriend,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A1C1C)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Eliminar", color = Color(0xFFFFB4AB))
                     }
-                )
+                }
+            } else {
+                Button(
+                    onClick = onAddFriend,
+                    enabled = status == "NONE",
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = when(status) {
+                            "SENT" -> Color(0xFF242933)
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = when(status) {
+                            "SENT" -> "Solicitud Enviada"
+                            "RECEIVED" -> "Ver Solicitud"
+                            else -> "Agregar amigo"
+                        }
+                    )
+                }
             }
         }
     }
@@ -2183,19 +2357,28 @@ private fun GroupCard(group: GamerGroup, isSelected: Boolean, onJoin: () -> Unit
 }
 
 @Composable
-private fun ChatRoom(
+internal fun ChatRoom(
     group: GamerGroup,
     messages: List<ChatMessage>,
-    onSendMessage: (String) -> Unit
+    onSendMessage: (String) -> Unit,
+    onOpenBubble: () -> Unit = {}
 ) {
     var draft by remember(group.name) { mutableStateOf("") }
+    val context = LocalContext.current
 
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF181B21)),
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Sala: ${group.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Sala: ${group.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                
+                // Botón para activar Burbuja Flotante
+                IconButton(onClick = onOpenBubble) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = "Burbuja", tint = Color(0xFF7CFFB2))
+                }
+            }
             messages.forEach { message ->
                 var flashActive by remember(message) { mutableStateOf(message.time == "Ahora") }
                 val flashAlpha by animateFloatAsState(
@@ -2260,7 +2443,7 @@ private fun ChatRoom(
 }
 
 @Composable
-private fun GamerRoomsTheme(content: @Composable () -> Unit) {
+internal fun GamerRoomsTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Color(0xFF7CFFB2),
