@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.AssistChip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.aspectRatio
@@ -113,6 +114,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import androidx.fragment.app.FragmentActivity
+import androidx.biometric.BiometricPrompt
+import androidx.biometric.BiometricManager
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -120,7 +125,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -718,8 +723,116 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
     var password by remember { mutableStateOf(sharedPrefs.getString("saved_password", "") ?: "") }
     var rememberMe by remember { mutableStateOf(sharedPrefs.getBoolean("remember_me", false)) }
     
-    var showError by remember { mutableStateOf(false) }
-    val canSubmit = email.isNotBlank() && password.isNotBlank()
+    var loginErrorMessage by remember { mutableStateOf("") }
+    var isLoggingIn by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Verificación de disponibilidad de biometría
+    val biometricManager = BiometricManager.from(context)
+    val canUseBiometrics = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
+
+    // Lógica para el inicio de sesión centralizada
+    fun performLogin(emailVal: String, passVal: String) {
+        if (emailVal.isBlank() || passVal.isBlank()) {
+            loginErrorMessage = "Por favor, introduce tu correo y contraseña."
+            return
+        }
+        coroutineScope.launch {
+            try {
+                isLoggingIn = true
+                loginErrorMessage = ""
+                val users = supabaseClient.from("usuarios")
+                    .select {
+                        filter {
+                            or {
+                                ilike("email", emailVal.trim())
+                                ilike("gamertag", emailVal.trim())
+                            }
+                        }
+                    }.decodeList<UserProfile>()
+                
+                if (users.isNotEmpty()) {
+                    val matchedUser = users.first()
+                    val isPasswordCorrect = try {
+                        BCrypt.checkpw(passVal, matchedUser.passwordHash)
+                    } catch (e: Exception) { false }
+
+                    if (isPasswordCorrect) {
+                        if (rememberMe) {
+                            sharedPrefs.edit()
+                                .putString("saved_email", emailVal)
+                                .putString("saved_password", passVal)
+                                .putBoolean("remember_me", true)
+                                .apply()
+                        } else {
+                            sharedPrefs.edit().clear().apply()
+                        }
+                        
+                        try {
+                            val currentTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
+                                .format(Date())
+                            supabaseClient.from("usuarios").update({
+                                set("ultimo_login", currentTimestamp)
+                            }) { filter { ilike("email", matchedUser.email) } }
+                        } catch (dbEx: Exception) { dbEx.printStackTrace() }
+
+                        onLoginSuccess(matchedUser)
+                    } else {
+                        loginErrorMessage = "Contraseña incorrecta. Inténtalo de nuevo."
+                    }
+                } else {
+                    loginErrorMessage = "Credenciales incorrectas. Revisa tu correo."
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                loginErrorMessage = "Error de red: Verifica tu conexión."
+            } finally {
+                isLoggingIn = false
+            }
+        }
+    }
+
+    // Lógica Biometría
+    fun showBiometricPrompt() {
+        val fragmentActivity = context as? FragmentActivity ?: return
+        val executor = ContextCompat.getMainExecutor(context)
+        val biometricPrompt = BiometricPrompt(fragmentActivity, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    val savedEmail = sharedPrefs.getString("saved_email", "") ?: ""
+                    val savedPass = sharedPrefs.getString("saved_password", "") ?: ""
+                    if (savedEmail.isNotBlank() && savedPass.isNotBlank()) {
+                        performLogin(savedEmail, savedPass)
+                    } else {
+                        loginErrorMessage = "No hay datos guardados para huella. Logueate primero."
+                    }
+                }
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                        loginErrorMessage = "Error de huella: $errString"
+                    }
+                }
+            })
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Inicio de sesión biométrico")
+            .setSubtitle("Usa tu huella para entrar a GamerRooms")
+            .setNegativeButtonText("Usar contraseña")
+            .build()
+
+        biometricPrompt.authenticate(promptInfo)
+    }
+
+    // Auto-disparo de huella si hay datos guardados y biometría disponible
+    LaunchedEffect(Unit) {
+        val savedEmail = sharedPrefs.getString("saved_email", "") ?: ""
+        val savedPass = sharedPrefs.getString("saved_password", "") ?: ""
+        if (canUseBiometrics && savedEmail.isNotBlank() && savedPass.isNotBlank()) {
+            showBiometricPrompt()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -766,7 +879,7 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
                         value = email,
                         onValueChange = {
                             email = it
-                            showError = false
+                            loginErrorMessage = ""
                         },
                         modifier = Modifier.fillMaxWidth(),
                         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
@@ -778,7 +891,7 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
                         value = password,
                         onValueChange = {
                             password = it
-                            showError = false
+                            loginErrorMessage = ""
                         },
                         modifier = Modifier.fillMaxWidth(),
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
@@ -809,11 +922,6 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
                         )
                     }
 
-                    // Estado local para animación de carga y mensajes de error específicos
-                    var loginErrorMessage by remember { mutableStateOf("") }
-                    var isLoggingIn by remember { mutableStateOf(false) }
-                    val coroutineScope = rememberCoroutineScope()
-
                     if (loginErrorMessage.isNotBlank()) {
                         Text(
                             text = loginErrorMessage,
@@ -831,88 +939,36 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
                         )
                     }
 
-                    Button(
-                        enabled = !isLoggingIn,
-                        onClick = {
-                            if (canSubmit) {
-                                coroutineScope.launch {
-                                    try {
-                                        isLoggingIn = true
-                                        loginErrorMessage = ""
-                                        
-                                        // CONSULTA FLEXIBLE: Busca coincidencia ya sea en la columna 'email' o en la columna 'gamertag' ignorando mayúsculas
-                                        val users = supabaseClient.from("usuarios")
-                                            .select {
-                                                filter {
-                                                    or {
-                                                        ilike("email", email.trim())
-                                                        ilike("gamertag", email.trim())
-                                                    }
-                                                }
-                                            }.decodeList<UserProfile>()
-                                        
-                                        if (users.isNotEmpty()) {
-                                            val matchedUser = users.first()
-                                            
-                                            // VALIDACIÓN LOCAL DEL HASH
-                                            val isPasswordCorrect = try {
-                                                BCrypt.checkpw(password, matchedUser.passwordHash)
-                                            } catch (e: Exception) {
-                                                false
-                                            }
-
-                                            if (isPasswordCorrect) {
-                                                // GUARDAR PREFERENCIAS SI RECORDARME ESTÁ ACTIVO
-                                                if (rememberMe) {
-                                                    sharedPrefs.edit()
-                                                        .putString("saved_email", email)
-                                                        .putString("saved_password", password)
-                                                        .putBoolean("remember_me", true)
-                                                        .apply()
-                                                } else {
-                                                    sharedPrefs.edit().clear().apply()
-                                                }
-
-                                                // ACTUALIZACIÓN DE ÚLTIMO LOGIN
-                                                try {
-                                                    val currentTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
-                                                        .format(Date())
-                                                    
-                                                    supabaseClient.from("usuarios").update({
-                                                        set("ultimo_login", currentTimestamp)
-                                                    }) {
-                                                        filter {
-                                                            ilike("email", matchedUser.email)
-                                                        }
-                                                    }
-                                                } catch (dbEx: Exception) {
-                                                    dbEx.printStackTrace()
-                                                }
-
-                                                // Inicio de sesión exitoso
-                                                onLoginSuccess(matchedUser)
-                                            } else {
-                                                loginErrorMessage = "Contraseña incorrecta. Inténtalo de nuevo."
-                                            }
-                                        } else {
-                                            loginErrorMessage = "Credenciales incorrectas. Revisa tu correo."
-                                        }
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        loginErrorMessage = "Error de red o tabla: Verifica tu conexión a internet."
-                                    } finally {
-                                        isLoggingIn = false
-                                    }
-                                }
-                            } else {
-                                loginErrorMessage = "Por favor, introduce tu correo y contraseña."
-                            }
-                        },
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(if (isLoggingIn) "Cargando..." else "Entrar")
+                        Button(
+                            enabled = !isLoggingIn,
+                            onClick = { performLogin(email, password) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(if (isLoggingIn) "Cargando..." else "Entrar")
+                        }
+                        
+                        if (canUseBiometrics) {
+                            // Botón de Huella
+                            IconButton(
+                                onClick = { showBiometricPrompt() },
+                                modifier = Modifier
+                                    .background(Color(0xFF242933), RoundedCornerShape(8.dp))
+                                    .size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = "Huella",
+                                    tint = Color(0xFF7CFFB2)
+                                )
+                            }
+                        }
                     }
+
                     Text(
                         text = "Registro con Cognito pendiente para la siguiente iteracion.",
                         style = MaterialTheme.typography.bodySmall,
