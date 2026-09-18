@@ -158,6 +158,7 @@ private data class UserProfile(
 private data class AmigoRelation(
     @SerialName("usuario_id") val usuarioId: Int,
     @SerialName("amigo_id") val amigoId: Int,
+    @SerialName("estado") val estado: String = "PENDIENTE",
     @SerialName("id") val id: Int? = null
 )
 
@@ -169,6 +170,7 @@ private enum class AuthMode {
 private enum class MainSection {
     Groups,
     Friends,
+    Chats,
     Profile
 }
 
@@ -285,23 +287,78 @@ private fun GamerRoomsApp() {
         }
     }
 
-    // Cargar amigos reales de la base de datos para el usuario logueado
+    // Cargar relaciones de amistad (Solicitudes y Aceptadas)
+    val amigoRelations = remember { mutableStateListOf<AmigoRelation>() }
+    val pendingRequests = remember { mutableStateListOf<UserProfile>() }
+    
     LaunchedEffect(isLoggedIn, selectedSection) {
         if (isLoggedIn && myProfile.id != null) {
             try {
-                val relations = supabaseClient.from("amigos")
+                // Traer TODAS las relaciones donde el usuario esté involucrado (como remitente o destinatario)
+                val allRels = supabaseClient.from("amigos")
                     .select {
                         filter {
-                            eq("usuario_id", myProfile.id!!)
+                            or {
+                                eq("usuario_id", myProfile.id!!)
+                                eq("amigo_id", myProfile.id!!)
+                            }
                         }
                     }.decodeList<AmigoRelation>()
                 
+                amigoRelations.clear()
+                amigoRelations.addAll(allRels)
+
+                // Cargar lista completa de usuarios para resolver perfiles
                 val allUsers = supabaseClient.from("usuarios").select().decodeList<UserProfile>()
-                val myFriends = allUsers.filter { u -> relations.any { r -> r.amigoId == u.id } }
+                
+                // Mis amigos (aceptados)
+                val myConfirmedFriends = allUsers.filter { u -> 
+                    allRels.any { r -> 
+                        r.estado == "ACEPTADA" && (
+                            (r.usuarioId == myProfile.id && r.amigoId == u.id) || 
+                            (r.amigoId == myProfile.id && r.usuarioId == u.id)
+                        )
+                    }
+                }
                 friends.clear()
-                friends.addAll(myFriends)
+                friends.addAll(myConfirmedFriends)
+                
+                // Solicitudes pendientes ENTRANTES (yo soy amigo_id)
+                val myPending = allUsers.filter { u -> 
+                    allRels.any { r -> r.estado == "PENDIENTE" && r.amigoId == myProfile.id && r.usuarioId == u.id }
+                }
+                pendingRequests.clear()
+                pendingRequests.addAll(myPending)
+                
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    // Estado para chat privado seleccionado
+    var selectedFriendChat by remember { mutableStateOf<UserProfile?>(null) }
+    val directMessages = remember { mutableStateListOf<ChatMessage>() }
+
+    // Polling de mensajes directos
+    LaunchedEffect(selectedSection, selectedFriendChat) {
+        if (selectedSection == MainSection.Chats && selectedFriendChat != null) {
+            val myId = myProfile.id ?: 0
+            val friendId = selectedFriendChat?.id ?: 0
+            val dmId = if (myId < friendId) "DM:${myId}_$friendId" else "DM:${friendId}_$myId"
+            
+            while (selectedSection == MainSection.Chats && selectedFriendChat != null) {
+                try {
+                    val dbMessages = supabaseClient.from("mensajes")
+                        .select {
+                            filter { eq("grupo", dmId) }
+                        }.decodeList<ChatMessage>()
+                    directMessages.clear()
+                    directMessages.addAll(dbMessages)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                kotlinx.coroutines.delay(3000)
             }
         }
     }
@@ -459,24 +516,141 @@ private fun GamerRoomsApp() {
                     }
                     MainSection.Friends -> {
                         item {
-                            FriendsSection(
-                                friends = friends,
-                                onAddFriend = { friend ->
-                                    if (myProfile.id != null && friend.id != null) {
-                                        scope.launch {
-                                            try {
-                                                val rel = AmigoRelation(usuarioId = myProfile.id!!, amigoId = friend.id!!)
-                                                supabaseClient.from("amigos").insert(rel)
-                                                if (friends.none { it.id == friend.id }) {
-                                                    friends.add(friend)
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (pendingRequests.isNotEmpty()) {
+                                    Text("🔔 Solicitudes Pendientes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF7CFFB2))
+                                    pendingRequests.forEach { reqUser ->
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF20242C)),
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(reqUser.gamerTag, fontWeight = FontWeight.Bold, color = Color.White)
+                                                    Text(reqUser.fullName, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
                                                 }
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Button(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                try {
+                                                                    supabaseClient.from("amigos").update({
+                                                                        set("estado", "ACEPTADA")
+                                                                    }) {
+                                                                        filter {
+                                                                            eq("usuario_id", reqUser.id!!)
+                                                                            eq("amigo_id", myProfile.id!!)
+                                                                        }
+                                                                    }
+                                                                    pendingRequests.remove(reqUser)
+                                                                    if (friends.none { it.id == reqUser.id }) friends.add(reqUser)
+                                                                } catch (e: Exception) { e.printStackTrace() }
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E3528)),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Text("Aceptar", color = Color(0xFF7CFFB2), fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Button(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                try {
+                                                                    supabaseClient.from("amigos").delete {
+                                                                        filter {
+                                                                            eq("usuario_id", reqUser.id!!)
+                                                                            eq("amigo_id", myProfile.id!!)
+                                                                        }
+                                                                    }
+                                                                    pendingRequests.remove(reqUser)
+                                                                } catch (e: Exception) { e.printStackTrace() }
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A1C1C)),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Text("Rechazar", color = Color(0xFFFFB4AB), fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
+                                    Spacer(modifier = Modifier.height(12.dp))
                                 }
-                            )
+
+                                FriendsSection(
+                                    friends = friends,
+                                    onAddFriend = { friend ->
+                                        if (myProfile.id != null && friend.id != null) {
+                                            scope.launch {
+                                                try {
+                                                    val rel = AmigoRelation(usuarioId = myProfile.id!!, amigoId = friend.id!!, estado = "PENDIENTE")
+                                                    supabaseClient.from("amigos").insert(rel)
+                                                    // No se agrega directo a amigos confirmados, queda en espera de que el otro acepte
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    MainSection.Chats -> {
+                        item {
+                            Text("Direct Messages", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        if (friends.isEmpty()) {
+                            item {
+                                Text("Acepta solicitudes o agrega amigos para iniciar un chat privado.", color = Color.Gray, modifier = Modifier.padding(16.dp))
+                            }
+                        } else {
+                            item {
+                                Text("Elige un amigo para chatear:", style = MaterialTheme.typography.titleMedium, color = Color(0xFF7CFFB2))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    friends.forEach { f ->
+                                        val isSel = selectedFriendChat?.id == f.id
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = if (isSel) Color(0xFF1E3528) else Color(0xFF181B21)),
+                                            border = BorderStroke(1.dp, if (isSel) Color(0xFF7CFFB2) else Color.Transparent),
+                                            modifier = Modifier.clickable { selectedFriendChat = f }.padding(4.dp)
+                                        ) {
+                                            Text(f.gamerTag, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.Bold, color = if (isSel) Color(0xFF7CFFB2) else Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                            if (selectedFriendChat != null) {
+                                item {
+                                    val myId = myProfile.id ?: 0
+                                    val friendId = selectedFriendChat?.id ?: 0
+                                    val dmId = if (myId < friendId) "DM:${myId}_$friendId" else "DM:${friendId}_$myId"
+                                    
+                                    ChatRoom(
+                                        group = GamerGroup(selectedFriendChat!!.gamerTag, "Mensajes Privados", "", "", 2, "Online", emptyList()),
+                                        messages = directMessages,
+                                        onSendMessage = { t ->
+                                            val dmMsg = ChatMessage(
+                                                grupo = dmId,
+                                                author = myProfile.gamerTag,
+                                                text = t,
+                                                time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                                            )
+                                            scope.launch {
+                                                try {
+                                                    supabaseClient.from("mensajes").insert(dmMsg)
+                                                    directMessages.add(dmMsg)
+                                                } catch (e: Exception) { e.printStackTrace() }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                     MainSection.Profile -> {
@@ -1201,6 +1375,7 @@ private fun sectionTitle(section: MainSection): String {
     return when (section) {
         MainSection.Groups -> "Grupos"
         MainSection.Friends -> "Amigos"
+        MainSection.Chats -> "Chats Privados"
         MainSection.Profile -> "Mi perfil"
     }
 }
@@ -1394,6 +1569,12 @@ private fun GamerDrawer(selectedSection: MainSection, onSectionSelected: (MainSe
             onSectionSelected = onSectionSelected
         )
         DrawerDestination(
+            section = MainSection.Chats,
+            selectedSection = selectedSection,
+            label = "Chats",
+            onSectionSelected = onSectionSelected
+        )
+        DrawerDestination(
             section = MainSection.Profile,
             selectedSection = selectedSection,
             label = "Perfil",
@@ -1439,6 +1620,7 @@ private fun DrawerDestination(
                     imageVector = when (section) {
                         MainSection.Groups -> Icons.Default.Group
                         MainSection.Friends -> Icons.Default.Person
+                        MainSection.Chats -> Icons.Default.Send
                         MainSection.Profile -> Icons.Default.AccountCircle
                     },
                     contentDescription = null,
