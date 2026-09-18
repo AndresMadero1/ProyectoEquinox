@@ -612,9 +612,9 @@ private fun GamerRoomsApp() {
                                             }
                                         },
                                         onOpenBubble = {
-                                            // En grupos, usamos un ID ficticio o basado en el hash del nombre
+                                            val lastMsgText = if(currentMessages.isNotEmpty()) currentMessages.last().text else "Abriendo sala de chat..."
                                             val pseudoFriend = UserProfile("", selectedGroup.name, "", "", "", emptyList(), "", selectedGroup.name.hashCode())
-                                            NotificationHelper.showChatBubble(context, pseudoFriend, "Chat de grupo", myProfile.id ?: 0, myProfile.gamerTag)
+                                            NotificationHelper.showChatBubble(context, pseudoFriend, lastMsgText, myProfile.id ?: 0, myProfile.gamerTag)
                                         }
                                     )
                                 }
@@ -640,8 +640,9 @@ private fun GamerRoomsApp() {
                                             scope.launch { try { supabaseClient.from("mensajes").insert(newMsg) } catch (e: Exception) { e.printStackTrace() } }
                                         },
                                         onOpenBubble = {
+                                            val lastMsgText = if(currentMessages.isNotEmpty()) currentMessages.last().text else "Abriendo sala de chat..."
                                             val pseudoFriend = UserProfile("", selectedGroup.name, "", "", "", emptyList(), "", selectedGroup.name.hashCode())
-                                            NotificationHelper.showChatBubble(context, pseudoFriend, "Chat de grupo", myProfile.id ?: 0, myProfile.gamerTag)
+                                            NotificationHelper.showChatBubble(context, pseudoFriend, lastMsgText, myProfile.id ?: 0, myProfile.gamerTag)
                                         }
                                     )
                                 }
@@ -780,7 +781,8 @@ private fun GamerRoomsApp() {
                                                 scope.launch { try { supabaseClient.from("mensajes").insert(dmMsg); directMessages.add(dmMsg) } catch (e: Exception) { e.printStackTrace() } }
                                             },
                                             onOpenBubble = {
-                                                NotificationHelper.showChatBubble(context, selectedFriendChat!!, "Abriendo chat...", myProfile.id ?: 0, myProfile.gamerTag)
+                                                val lastMsg = if(directMessages.isNotEmpty()) directMessages.last().text else "Chatea con ${selectedFriendChat!!.gamerTag}"
+                                                NotificationHelper.showChatBubble(context, selectedFriendChat!!, lastMsg, myProfile.id ?: 0, myProfile.gamerTag)
                                             }
                                         )
                                     } else {
@@ -821,7 +823,8 @@ private fun GamerRoomsApp() {
                                                     scope.launch { try { supabaseClient.from("mensajes").insert(dmMsg); directMessages.add(dmMsg) } catch (e: Exception) { e.printStackTrace() } }
                                                 },
                                                 onOpenBubble = {
-                                                    NotificationHelper.showChatBubble(context, selectedFriendChat!!, "Abriendo chat...", myProfile.id ?: 0, myProfile.gamerTag)
+                                                    val lastMsg = if(directMessages.isNotEmpty()) directMessages.last().text else "Chatea con ${selectedFriendChat!!.gamerTag}"
+                                                    NotificationHelper.showChatBubble(context, selectedFriendChat!!, lastMsg, myProfile.id ?: 0, myProfile.gamerTag)
                                                 }
                                             )
                                         }

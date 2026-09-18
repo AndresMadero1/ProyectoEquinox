@@ -57,10 +57,11 @@ object NotificationHelper {
 
         // 3. Create Bubble Metadata
         val bubbleIntent = Intent(context, BubbleActivity::class.java).apply {
-            putExtra("friend_id", friend.id)
+            putExtra("friend_id", friend.id ?: 0)
             putExtra("friend_name", friend.gamerTag)
             putExtra("my_id", myId)
             putExtra("my_tag", myGamerTag)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(context, 0, bubbleIntent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         
@@ -68,6 +69,7 @@ object NotificationHelper {
             NotificationCompat.BubbleMetadata.Builder(pendingIntent, IconCompat.createWithResource(context, R.mipmap.ic_launcher))
                 .setDesiredHeight(600)
                 .setAutoExpandBubble(true)
+                .setSuppressNotification(true)
                 .build()
         } else null
 
@@ -86,6 +88,7 @@ object NotificationHelper {
             .setBubbleMetadata(bubbleData)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(friend.id ?: 0, builder.build())

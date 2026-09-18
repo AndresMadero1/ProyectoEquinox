@@ -1,5 +1,7 @@
 package com.proyectoapp.gamerrooms
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Text
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,6 +41,13 @@ class BubbleActivity : ComponentActivity() {
 
 @Composable
 fun BubbleChatScreen(friendId: Int, friendName: String, myId: Int, myTag: String) {
+    if (friendId == 0 || myId == 0) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Text("Error: Sesión de chat inválida (IDs 0)", color = Color.Red)
+        }
+        return
+    }
+
     val scope = rememberCoroutineScope()
     val directMessages = remember { mutableStateListOf<ChatMessage>() }
     val dmId = if (myId < friendId) "DM:${myId}_$friendId" else "DM:${friendId}_$myId"
@@ -50,8 +59,11 @@ fun BubbleChatScreen(friendId: Int, friendName: String, myId: Int, myTag: String
                     .select {
                         filter { eq("grupo", dmId) }
                     }.decodeList<ChatMessage>()
-                directMessages.clear()
-                directMessages.addAll(dbMessages)
+                
+                if (dbMessages.size != directMessages.size) {
+                    directMessages.clear()
+                    directMessages.addAll(dbMessages)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -72,7 +84,7 @@ fun BubbleChatScreen(friendId: Int, friendName: String, myId: Int, myTag: String
             scope.launch {
                 try {
                     SupabaseHelper.client.from("mensajes").insert(dmMsg)
-                    directMessages.add(dmMsg)
+                    // El polling lo cargará en el siguiente ciclo
                 } catch (e: Exception) { e.printStackTrace() }
             }
         }
