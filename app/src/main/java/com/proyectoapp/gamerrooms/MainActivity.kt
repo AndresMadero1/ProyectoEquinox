@@ -451,11 +451,14 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
                                         isLoggingIn = true
                                         loginErrorMessage = ""
                                         
-                                        // CONSULTA DIRECTA Y HASHING EN EL CLIENTE
+                                        // CONSULTA FLEXIBLE: Busca coincidencia ya sea en la columna 'email' o en la columna 'gamertag' ignorando mayúsculas
                                         val users = supabaseClient.from("usuarios")
                                             .select {
                                                 filter {
-                                                    ilike("email", email.trim())
+                                                    or {
+                                                        ilike("email", email.trim())
+                                                        ilike("gamertag", email.trim())
+                                                    }
                                                 }
                                             }.decodeList<UserProfile>()
                                         
