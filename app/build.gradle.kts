@@ -67,6 +67,7 @@ dependencies {
 
     // Supabase Ktor y Modulos de base de datos
     implementation("io.github.jan-tennert.supabase:postgrest-kt:3.0.3")
+    implementation("io.github.jan-tennert.supabase:auth-kt:3.0.3")
     implementation("io.ktor:ktor-client-android:3.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.mindrot:jbcrypt:0.4")
