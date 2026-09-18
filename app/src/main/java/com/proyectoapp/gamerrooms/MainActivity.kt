@@ -133,10 +133,13 @@ private data class GamerGroup(
     val tags: List<String>,
 )
 
+@Serializable
 private data class ChatMessage(
-    val author: String,
-    val text: String,
-    val time: String,
+    @SerialName("grupo") val grupo: String,
+    @SerialName("autor") val author: String,
+    @SerialName("texto") val text: String,
+    @SerialName("fecha_str") val time: String,
+    @SerialName("id") val id: Int? = null
 )
 
 @Serializable
@@ -147,7 +150,15 @@ private data class UserProfile(
     @SerialName("region") val region: String,
     @SerialName("platform") val platform: String,
     @SerialName("favorite_games") val favoriteGames: List<String>,
-    @SerialName("password_hash") val passwordHash: String
+    @SerialName("password_hash") val passwordHash: String,
+    @SerialName("id") val id: Int? = null
+)
+
+@Serializable
+private data class AmigoRelation(
+    @SerialName("usuario_id") val usuarioId: Int,
+    @SerialName("amigo_id") val amigoId: Int,
+    @SerialName("id") val id: Int? = null
 )
 
 private enum class AuthMode {
@@ -194,7 +205,10 @@ private fun GamerRoomsApp() {
 
     if (!isLoggedIn) {
         LoginScreen(
-            onLogin = { isLoggedIn = true },
+            onLogin = { profile ->
+                myProfile = profile
+                isLoggedIn = true
+            },
             onRegister = { profile ->
                 myProfile = profile
                 isLoggedIn = true
@@ -226,6 +240,46 @@ private fun GamerRoomsApp() {
     }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    // Polling de mensajes cada 3 segundos en la sala activa
+    LaunchedEffect(selectedGroup) {
+        while (true) {
+            try {
+                val dbMessages = supabaseClient.from("mensajes")
+                    .select {
+                        filter {
+                            eq("grupo", selectedGroup.name)
+                        }
+                    }.decodeList<ChatMessage>()
+                currentMessages.clear()
+                currentMessages.addAll(dbMessages)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            kotlinx.coroutines.delay(3000)
+        }
+    }
+
+    // Cargar amigos reales de la base de datos para el usuario logueado
+    LaunchedEffect(isLoggedIn, selectedSection) {
+        if (isLoggedIn && myProfile.id != null) {
+            try {
+                val relations = supabaseClient.from("amigos")
+                    .select {
+                        filter {
+                            eq("usuario_id", myProfile.id!!)
+                        }
+                    }.decodeList<AmigoRelation>()
+                
+                val allUsers = supabaseClient.from("usuarios").select().decodeList<UserProfile>()
+                val myFriends = allUsers.filter { u -> relations.any { r -> r.amigoId == u.id } }
+                friends.clear()
+                friends.addAll(myFriends)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -303,7 +357,19 @@ private fun GamerRoomsApp() {
                                 group = selectedGroup,
                                 messages = currentMessages,
                                 onSendMessage = { text ->
-                                    currentMessages.add(ChatMessage("Tú", text, "Ahora"))
+                                    val newMsg = ChatMessage(
+                                        grupo = selectedGroup.name,
+                                        author = myProfile.gamerTag,
+                                        text = text,
+                                        time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                                    )
+                                    scope.launch {
+                                        try {
+                                            supabaseClient.from("mensajes").insert(newMsg)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -313,8 +379,18 @@ private fun GamerRoomsApp() {
                             FriendsSection(
                                 friends = friends,
                                 onAddFriend = { friend ->
-                                    if (friends.none { it.gamerTag == friend.gamerTag }) {
-                                        friends.add(friend)
+                                    if (myProfile.id != null && friend.id != null) {
+                                        scope.launch {
+                                            try {
+                                                val rel = AmigoRelation(usuarioId = myProfile.id!!, amigoId = friend.id!!)
+                                                supabaseClient.from("amigos").insert(rel)
+                                                if (friends.none { it.id == friend.id }) {
+                                                    friends.add(friend)
+                                                }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        }
                                     }
                                 }
                             )
