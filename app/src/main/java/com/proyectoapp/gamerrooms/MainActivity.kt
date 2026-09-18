@@ -66,6 +66,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -99,12 +101,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import android.content.Context
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -682,8 +686,13 @@ private fun LoginScreen(onLogin: (UserProfile) -> Unit, onRegister: (UserProfile
 
 @Composable
 private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: () -> Unit) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val sharedPrefs = remember { context.getSharedPreferences("gamer_rooms_prefs", Context.MODE_PRIVATE) }
+    
+    var email by remember { mutableStateOf(sharedPrefs.getString("saved_email", "") ?: "") }
+    var password by remember { mutableStateOf(sharedPrefs.getString("saved_password", "") ?: "") }
+    var rememberMe by remember { mutableStateOf(sharedPrefs.getBoolean("remember_me", false)) }
+    
     var showError by remember { mutableStateOf(false) }
     val canSubmit = email.isNotBlank() && password.isNotBlank()
 
@@ -753,6 +762,28 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
                     )
+
+                    // OPCIÓN RECORDARME
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { rememberMe = !rememberMe }
+                    ) {
+                        Checkbox(
+                            checked = rememberMe,
+                            onCheckedChange = { rememberMe = it },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = Color(0xFF7CFFB2),
+                                uncheckedColor = Color.Gray,
+                                checkmarkColor = Color.Black
+                            )
+                        )
+                        Text(
+                            text = "Recordarme",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
                     // Estado local para animación de carga y mensajes de error específicos
                     var loginErrorMessage by remember { mutableStateOf("") }
                     var isLoggingIn by remember { mutableStateOf(false) }
@@ -806,6 +837,17 @@ private fun LoginForm(onLoginSuccess: (UserProfile) -> Unit, onCreateAccount: ()
                                             }
 
                                             if (isPasswordCorrect) {
+                                                // GUARDAR PREFERENCIAS SI RECORDARME ESTÁ ACTIVO
+                                                if (rememberMe) {
+                                                    sharedPrefs.edit()
+                                                        .putString("saved_email", email)
+                                                        .putString("saved_password", password)
+                                                        .putBoolean("remember_me", true)
+                                                        .apply()
+                                                } else {
+                                                    sharedPrefs.edit().clear().apply()
+                                                }
+
                                                 // ACTUALIZACIÓN DE ÚLTIMO LOGIN
                                                 try {
                                                     val currentTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
